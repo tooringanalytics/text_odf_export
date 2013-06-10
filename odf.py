@@ -12,6 +12,9 @@ import decimal as dc
 from odfexcept import *
 from binary import BinaryStruct
 
+# Create logger
+import logging
+log = logging.getLogger(__name__)
 
 class ODFHeader(BinaryStruct):
 	""" ODF Header Binary Struct.
@@ -52,11 +55,11 @@ class ODFHeader(BinaryStruct):
 			raise ODFIOError("Empty file")
 		l_values[1] = self.fn_parse(line.strip())
 
-		#print l_values
+		#log.debug(l_values)
 		return l_values
 
 	def get_header_name(self):
-		return self.ld_fields[1].keys()[0]
+		return list(self.ld_fields[1].keys())[0]
 
 	def get_header_value(self):
 		return self.d_fields[self.get_header_name()]
@@ -199,9 +202,9 @@ class ODF(BinaryStruct):
 				'ld_fields' : [
 					# {'<field_name>' : 'x/c/...' },
 					{'GMT_OFFSET_STORLOC' : 'H'},
-					{'GMT_OFFSET' : 'l'},
+					{'GMT_OFFSET' : 'd'},
 				],
-				'padding' : 32,
+				'padding' : 28,
 				'storloc' : 1,
 				'b_text' : True, 
 				'fn_parse' : float,
@@ -211,9 +214,9 @@ class ODF(BinaryStruct):
 			'TRADING_START_RECNO' : {
 				'ld_fields' : [
 					{'TRADING_START_RECNO_STORLOC' : 'H'},
-					{'TRADING_START_RECNO' : 'L'},
+					{'TRADING_START_RECNO' : 'd'},
 				],
-				'padding' : 32,
+				'padding' : 28,
 				'storloc' : 2,
 				'b_text' : True, 
 				'fn_parse' : float,
@@ -223,9 +226,9 @@ class ODF(BinaryStruct):
 			'TRADING_RECS_PERDAY': {
 				'ld_fields' : [
 					{'TRADING_RECS_PERDAY_STORLOC' : 'H'},
-					{'TRADING_RECS_PERDAY': 'L'},
+					{'TRADING_RECS_PERDAY': 'd'},
 				],
-				'padding' : 32,
+				'padding' : 28,
 				'storloc' : 3,
 				'b_text' : True, 
 				'fn_parse' : float,
@@ -235,9 +238,9 @@ class ODF(BinaryStruct):
 			'IDF_CURRENCY' : {
 				'ld_fields' : [
 					{'IDF_CURRENCY_STORLOC' : 'H'},
-					{'IDF_CURRENCY' : 'L',},
+					{'IDF_CURRENCY' : 'd',},
 				],
-				'padding' : 32,
+				'padding' : 28,
 				'storloc' : 4,
 				'b_text' : True, 
 				'fn_parse' : float,
@@ -247,9 +250,9 @@ class ODF(BinaryStruct):
 			'IDF_CURRENCY_MAX_DECIMALS' : {
 				'ld_fields' : [
 					{'IDF_CURRENCT_MAX_DECIMALS_STORLOC' : 'H'},
-					{'IDF_CURRENCY_MAX_DECIMALS' : 'L'},
+					{'IDF_CURRENCY_MAX_DECIMALS' : 'd'},
 				],
-				'padding' : 32,
+				'padding' : 28,
 				'storloc' : 5,
 				'b_text' : True, 
 				'fn_parse' : float,
@@ -259,9 +262,9 @@ class ODF(BinaryStruct):
 			'SPLIT_FACTOR' : {
 				'ld_fields' : [
 					{'SPLIT_FACTOR_STORLOC' : 'H'},
-					{'SPLIT_FACTOR' : 'L'},
+					{'SPLIT_FACTOR' : 'd'},
 				],
-				'padding' : 32,
+				'padding' : 28,
 				'storloc' : 6, 
 				'b_text' : True, 
 				'fn_parse' : float,
@@ -271,9 +274,9 @@ class ODF(BinaryStruct):
 			'CURRENCY_VALUE_OF_POINT' : {
 				'ld_fields' : [
 					{'CURRENCY_VALUE_OF_POINT_STORLOC' : 'H'},
-					{'CURRENCY_VALUE_OF_POINT' : 'L'},
+					{'CURRENCY_VALUE_OF_POINT' : 'd'},
 				],
-				'padding' : 32,
+				'padding' : 28,
 				'storloc' : 7,
 				'b_text' : True, 
 				'fn_parse' : float,
@@ -359,7 +362,7 @@ class ODF(BinaryStruct):
 		self.l_odf_headers = []
 		self.b_fill_missing_headers = b_fill_missing_headers
 		for d_header in self.ld_header_layout:
-			s_hdr_name = d_header.keys()[0]
+			s_hdr_name = list(d_header.keys())[0]
 			# Only add a header field if it is a 'compulsory' field
 			# or if we have to fill missing header fields.
 			if d_header[s_hdr_name]['b_text'] or b_fill_missing_headers:
@@ -388,8 +391,8 @@ class ODF(BinaryStruct):
 	def dedup(self, d_dedup_dict, odf_obj):
 		recno = odf_obj.get_recno()
 
-		if (d_dedup_dict.has_key(recno)):
-			print "Duplicate detected with recno: %d" % recno
+		if recno in d_dedup_dict:
+			log.debug("Duplicate detected with recno: %d" % recno)
 			pass
 
 		d_dedup_dict[recno] = odf_obj
@@ -430,7 +433,7 @@ class ODF(BinaryStruct):
 				assert(odf_body.get_size() == self.record_size)
 				#l_odf_body.append(odf_body)
 				self.dedup(d_dedup_dict, odf_body)
-				#print odf_body.get_field('ODF_RECNO')
+				#log.debug(odf_body.get_field('ODF_RECNO'))
 		except ODFEOF as err:
 			# EOF breaks the loop.
 			pass
@@ -473,16 +476,23 @@ class ODF(BinaryStruct):
 		"""
 
 		l_odf_objs = []
-		buf = ""
+		buf = None
 		
 		# First hash all headers into the dup-detect dict
 		for odf_header in self.l_odf_headers:
-			buf = buf + odf_header.to_bin()
+			if buf is None:
+				buf = odf_header.to_bin()
+			else:
+				buf = buf + odf_header.to_bin()
 			#self.dup_detect_bin(d_dup_dict, odf_header)
 
 		# First hash all records into the dup-detect dict
 		for odf_body in self.l_odf_body:
-			buf = buf + odf_body.to_bin()
+			if buf is None:
+				buf = odf_body.to_bin()
+			else:
+				buf = buf + odf_body.to_bin()
+			
 			#self.dup_detect_bin(d_dup_dict, odf_body)
 
 		# we have to sort recnos in asc. order from the hash, before we encode
@@ -497,7 +507,7 @@ class ODF(BinaryStruct):
 	def dup_detect(self, d_dict, s_odf_basename, odf_obj):
 		s_key = self.dup_key(s_odf_basename, odf_obj)
 		if d_dict.has_key(s_key):
-			print "Duplicate record: " + s_key
+			log.debug("Duplicate record: " + s_key)
 			#assert(False)
 			pass
 

@@ -78,13 +78,17 @@ class BinaryStruct(object):
 			else:
 				raise ODFInvalidPadding()
 
-		# Store a dict object with some initial values for all fields
+		# Prepare the format string for binary decoing/encoding
+		# and create a dict object with some initial values for all fields
 		for d_field in self.ld_fields:
-			s_struct_fmt = s_struct_fmt + d_field.values()[0]
-			self.d_fields[d_field.keys()[0]] = 0
+			s_width = list(d_field.values())[0]
+			s_field_name = list(d_field.keys())[0]
+			s_struct_fmt = s_struct_fmt + s_width
+			self.d_fields[s_field_name] = 0
 
 		# Compile the format string for packing/unpacking binary data
 		self.st_struct = st.Struct(s_struct_fmt)
+		self.s_struct_fmt = s_struct_fmt
 
 	def __str__(self):
 		""" Return the string representation of this type.
@@ -102,14 +106,14 @@ class BinaryStruct(object):
 	def get_field_names(self):
 		""" Return a list of names of all binary fields in the order in which they appear.
 		"""
-		ls_fields = [ d_field.keys()[0] for d_field in self.ld_fields]
+		ls_fields = [ list(d_field.keys())[0] for d_field in self.ld_fields]
 		return ls_fields
 
 	def get_field(self, s_field):
 		""" Return the value for the speicifed field.
 		@param s_field: field name.
 		"""
-		if self.d_fields.has_key(s_field):
+		if s_field in self.d_fields:
 			return self.d_fields[s_field]
 		raise ODFInvalidField("Unknown field %s" % s_field)
 
@@ -224,13 +228,18 @@ class BinaryStruct(object):
 	def to_bin(self):
 		""" Pack all values into a binary buffer, and return it.
 		"""
-		l_values = []
+		l_values = list([])
 		for d_field in self.ld_fields:
 			#print "Key : " + d_field.keys()[0]
 			#print "d_fields keys: " + ', '.join(self.d_fields.keys())
-			l_values.append(self.d_fields[d_field.keys()[0]])
-		#print l_values
-		return self.st_struct.pack(*l_values)
+			s_field_name = list(d_field.keys())[0]
+			l_values.append(self.d_fields[s_field_name])
+		#print(l_values)
+		#for val in l_values:
+		#	print(type(val))
+		#print(self.s_struct_fmt)
+		#print(*l_values)
+		return st.pack(self.s_struct_fmt, *l_values)
 
 	def to_text(self):
 		""" Return a text representation of this binary struct.

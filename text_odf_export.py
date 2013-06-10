@@ -1,7 +1,13 @@
 
-# Library imports
+
 import sys
 import os.path
+
+# Add the file's parent directory to the package search path.
+_lib_path = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.append(_lib_path)
+
+# Library imports
 import re
 import glob
 import argparse
@@ -11,6 +17,9 @@ from dd import DDStore
 from odf import ODF
 from odfproc import ODFProcessor
 
+# Create logger
+import logging
+log = logging.getLogger(__name__)
 
 def test_conversion():
 	odf = ODF()
@@ -37,7 +46,7 @@ def test_conversion():
 
 	fp_bin_odf.close()
 
-	print odf
+	print(odf)
 
 class TextODFExporter(object):
 
@@ -103,26 +112,58 @@ class TextODFExporter(object):
 	
 	def prompt_interactive(self):
 		s_reply = ""
-
+		
 		if self.b_binary:
-			s_reply = raw_input("This program will generate binary ODFs. Proceed? (y/N): ").strip()
+			print("This program will generate binary ODFs. Proceed? (y/N): ")
 		elif self.b_dynamodb:
-			s_reply = raw_input("This program will upload ODF data to DynamoDB. Proceed? (y/N): ").strip()
+			print("This program will upload ODF data to DynamoDB. Proceed? (y/N): ")
+
+		# Force the prompt to display
+		sys.stdout.flush()
+
+		s_reply = raw_input().strip()
+		#s_reply = input().strip()
 
 		if not self.re_reply_yes.match(s_reply):
 			sys.exit(-1)
 
 
 	def text_to_binary(self):
-		print "Iterating over root dir"
+		s_aws_access_key_id = self.d_settings["DDACCESSKEY"]
+		s_aws_secret_access_key = self.d_settings["DDSECRETACCESSKEY"]
+		s_region_name = self.d_settings["DDREGION"]
+
+
+		log.debug("Creating DDStore")
+		ddstore = DDStore(s_aws_access_key_id,
+							s_aws_secret_access_key,
+							s_region_name)
+
+		log.debug("Creating ODFProcessor")
+		proc = ODFProcessor(ddstore)
+
 		proc.for_all_odfs_txt(s_root_dir=self.s_root_dir, 
-								fn_do=self.proc.convert_txt2bin)		
+								fn_do=proc.convert_txt2bin,
+								b_show=self.b_show)		
 
 
 	def text_to_dynamodb(self):
-		print "Iterating over root dir"
+		s_aws_access_key_id = self.d_settings["DDACCESSKEY"]
+		s_aws_secret_access_key = self.d_settings["DDSECRETACCESSKEY"]
+		s_region_name = self.d_settings["DDREGION"]
+
+
+		log.debug("Creating DDStore")
+		ddstore = DDStore(s_aws_access_key_id,
+							s_aws_secret_access_key,
+							s_region_name)
+
+		log.debug("Creating ODFProcessor")
+		proc = ODFProcessor(ddstore)
+
 		proc.for_all_odfs_txt(s_root_dir=self.s_root_dir,
-							fn_do=self.proc.convert_txt2dd)	
+								fn_do=proc.convert_txt2dd,
+								b_show=self.b_show)	
 
 	def execute(self):
 		""" Execute the commands passed on the command line.
@@ -147,6 +188,37 @@ class TextODFExporter(object):
 
 	def main(self):
 
+		if not os.path.exists("logs"):
+			os.mkdir("logs")
+
+		s_logfile = os.sep.join(["logs", "text_odf_export.log"])
+
+
+		#logging.basicConfig()
+
+		logger = logging.getLogger()
+		logger.setLevel(logging.DEBUG)
+
+		# Create log file handler
+		fh = logging.FileHandler(s_logfile)
+		fh.setLevel(logging.DEBUG)
+		
+		# Create console handler
+		ch = logging.StreamHandler()
+		ch.setLevel(logging.INFO)
+
+		log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+		con_formatter = logging.Formatter('********** %(levelname)s - %(message)s')
+
+		fh.setFormatter(log_formatter)
+		ch.setFormatter(con_formatter)
+
+		logger.addHandler(fh)
+		logger.addHandler(ch)
+
+		log.info("text_odf_export: Starting up")
+
 		self.d_settings = {}
 
 		try:
@@ -159,25 +231,11 @@ class TextODFExporter(object):
 
 		self.set_args(args)
 
-		s_aws_access_key_id = self.d_settings["DDACCESSKEY"]
-		s_aws_secret_access_key = self.d_settings["DDSECRETACCESSKEY"]
-		s_region_name = self.d_settings["DDREGION"]
-
 		self.s_root_dir = self.d_settings["LD_DD_DATA_ROOT"]
 
-		print "Creating DDStore"
-		ddstore = DDStore(s_aws_access_key_id,
-						s_aws_secret_access_key,
-						s_region_name)
-
-		self.ddstore = ddstore
-
-		print "Creating ODFProcessor"
-		proc = ODFProcessor(ddstore)
-
-		self.proc = proc
-
 		self.execute()	
+
+		log.info("text_odf_export: Completed task.")
 
 if __name__ == "__main__":
 	app = TextODFExporter()

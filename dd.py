@@ -10,6 +10,10 @@ import re
 
 from odfexcept import *
 
+# Create logger
+import logging
+log = logging.getLogger(__name__)
+
 class DDStore(object):
 
 	TABLE_CREATION_WAIT = 120
@@ -65,8 +69,8 @@ class DDStore(object):
 			except: 
 				# Table is still unavailable, continue to wait
 				odf_table = None
-				print "Waiting %d sec for table %s to be created..." % (self.TABLE_CREATION_WAIT, 
-																	s_table_name)
+				log.debug("Waiting %d sec for table %s to be created..." % (self.TABLE_CREATION_WAIT, 
+																	s_table_name))
 				time.sleep(self.TABLE_CREATION_WAIT)
 				continue
 			# We were able to 'get' the table, so break.
@@ -94,8 +98,8 @@ class DDStore(object):
 									])
 								],
 								connection=self.connection,)
-			print "Waiting %d sec for table %s to be created..." % (self.TABLE_CREATION_WAIT, 
-																	s_exchange)
+			log.debug("Waiting %d sec for table %s to be created..." % (self.TABLE_CREATION_WAIT, 
+																	s_exchange))
 			time.sleep(self.TABLE_CREATION_WAIT)
 		except boto.exception.JSONResponseError as err:
 			odf_table = self.wait_for_table(s_exchange)
@@ -124,7 +128,7 @@ class DDStore(object):
 	
 	def put_odf_records(self, odf_table, ld_odf_recs):
 		num_recs = len(ld_odf_recs)
-		print "Writing %d records with batch size %d." % (num_recs, self.BATCH_WRITE_SIZE)
+		log.debug("Writing %d records with batch size %d." % (num_recs, self.BATCH_WRITE_SIZE))
 		with odf_table.batch_write() as batch:
 			for i, d_odf_rec in enumerate(ld_odf_recs):
 		
@@ -134,9 +138,9 @@ class DDStore(object):
 				if (i+1) % self.BATCH_WRITE_SIZE == 0:
 					pause_sec = self.BATCH_WRITE_SIZE / self.TABLE_WRITE_THROUGHPUT
 					percent_complete = float(i+1)/float(num_recs) * 100.0
-					print "%d records written. %03.2f%% completed. Pausing %d sec." % ((i+1),
+					log.debug("%d records written. %03.2f%% completed. Pausing %d sec." % ((i+1),
 																					percent_complete,
-																					pause_sec)
+																					pause_sec))
 					time.sleep(pause_sec)
 				
 

@@ -1,4 +1,8 @@
 
+# Create logger
+import logging
+log = logging.getLogger(__name__)
+
 class ODFException(Exception):
 	""" Generic Exception class for ODF utilities
 	"""
