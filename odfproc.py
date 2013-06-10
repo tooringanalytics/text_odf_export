@@ -1,3 +1,30 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+'''
+@author Anshuman P.Kanetkar
+
+text_odf_export: Text file to ODF export tool.
+
+Copyright (C) 2013, Anshuman P.Kanetkar
+
+All rights reserved. 
+
+* Licensed under terms specified in the LICENSE file distributed with this program.
+
+DISCLAIMER:
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDER "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+'''
 
 # Required by argument processor
 import sys
@@ -91,6 +118,9 @@ class ODFProcessor:
 
 		#log.debug(str(ld_odf_recs) + "\n\n")
 		
+		if b_show:
+			log.info("%s" % s_txt_src)
+			
 		log.debug("Creating/getting table : %s" % s_exchange)
 		odf_table = self.ddstore.create_odf_table(s_exchange)
 

@@ -1,4 +1,30 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+'''
+@author Anshuman P.Kanetkar
 
+text_odf_export: Text file to ODF export tool.
+
+Copyright (C) 2013, Anshuman P.Kanetkar
+
+All rights reserved. 
+
+* Licensed under terms specified in the LICENSE file distributed with this program.
+
+DISCLAIMER:
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDER "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+'''
 
 import sys
 import os.path
@@ -13,40 +39,14 @@ import glob
 import argparse
 
 # Local imports
-from dd import DDStore
 from odf import ODF
 from odfproc import ODFProcessor
 
 # Create logger
 import logging
+import logging.handlers
 log = logging.getLogger(__name__)
 
-def test_conversion():
-	odf = ODF()
-
-	fp_txt_odf = open("EURUSD-1855053.rs4", "r")
-
-	odf.read_text_stream(fp_txt_odf)
-
-	fp_txt_odf.close()
-
-	buf = odf.to_bin()
-
-	fp_bin_odf = open("odf_bin.bin", "wb")
-
-	fp_bin_odf.write(buf)
-
-	fp_bin_odf.close()
-
-	odf2 = ODF()
-
-	fp_bin_odf = open("odf_bin.bin", "rb")
-
-	odf.read_bin_stream(fp_bin_odf)
-
-	fp_bin_odf.close()
-
-	print(odf)
 
 class TextODFExporter(object):
 
@@ -114,14 +114,20 @@ class TextODFExporter(object):
 		s_reply = ""
 		
 		if self.b_binary:
-			print("This program will generate binary ODFs. Proceed? (y/N): ")
+			sys.stdout.write("This program will generate binary ODFs. Proceed? (y/N): ")
 		elif self.b_dynamodb:
-			print("This program will upload ODF data to DynamoDB. Proceed? (y/N): ")
+			sys.stdout.write("This program will upload ODF data to DynamoDB. Proceed? (y/N): ")
 
 		# Force the prompt to display
 		sys.stdout.flush()
 
-		s_reply = raw_input().strip()
+		try:
+			s_reply = raw_input().strip()
+		except NameError as err:
+			s_reply = input().strip()
+			pass
+		except:
+			raise
 		#s_reply = input().strip()
 
 		if not self.re_reply_yes.match(s_reply):
@@ -129,18 +135,9 @@ class TextODFExporter(object):
 
 
 	def text_to_binary(self):
-		s_aws_access_key_id = self.d_settings["DDACCESSKEY"]
-		s_aws_secret_access_key = self.d_settings["DDSECRETACCESSKEY"]
-		s_region_name = self.d_settings["DDREGION"]
-
-
-		log.debug("Creating DDStore")
-		ddstore = DDStore(s_aws_access_key_id,
-							s_aws_secret_access_key,
-							s_region_name)
 
 		log.debug("Creating ODFProcessor")
-		proc = ODFProcessor(ddstore)
+		proc = ODFProcessor(ddstore=None)
 
 		proc.for_all_odfs_txt(s_root_dir=self.s_root_dir, 
 								fn_do=proc.convert_txt2bin,
@@ -154,6 +151,7 @@ class TextODFExporter(object):
 
 
 		log.debug("Creating DDStore")
+		from dd import DDStore
 		ddstore = DDStore(s_aws_access_key_id,
 							s_aws_secret_access_key,
 							s_region_name)
@@ -197,10 +195,12 @@ class TextODFExporter(object):
 		#logging.basicConfig()
 
 		logger = logging.getLogger()
-		logger.setLevel(logging.DEBUG)
+		logger.setLevel(logging.ERROR)
 
 		# Create log file handler
-		fh = logging.FileHandler(s_logfile)
+		fh = logging.handlers.RotatingFileHandler(s_logfile, 
+												maxBytes=8*1024*1024, 
+												backupCount=5)
 		fh.setLevel(logging.DEBUG)
 		
 		# Create console handler
@@ -217,7 +217,12 @@ class TextODFExporter(object):
 		logger.addHandler(fh)
 		logger.addHandler(ch)
 
-		log.info("text_odf_export: Starting up")
+		ls_modules = ['binary', 'odf', 'odfproc', 'odfexcept', 'dd', '__main__']
+
+		# Set debugging on for local modules.
+		for s_module in ls_modules:
+			mod_log = logging.getLogger(s_module)
+			mod_log.setLevel(logging.DEBUG)
 
 		self.d_settings = {}
 
@@ -233,6 +238,8 @@ class TextODFExporter(object):
 
 		self.s_root_dir = self.d_settings["LD_DD_DATA_ROOT"]
 
+		log.info("text_odf_export: Starting up")
+		
 		self.execute()	
 
 		log.info("text_odf_export: Completed task.")
