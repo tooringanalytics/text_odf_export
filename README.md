@@ -28,6 +28,10 @@ Dependencies:
 --------------
 
 - Boto-2.9.5 (as provided with this program.)
+
+Compatibility:
+---------------
+
 - python 2.7.2-2.7.5 (for both binary conversion and DynamoDB updates)
 - python 3.0-3.3.2 (only for binary conversion)
 
