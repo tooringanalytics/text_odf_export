@@ -15,7 +15,7 @@
     "LD_DATA_ROOT": "rspdata1",
     "TEST_MODE": "T",
     "DO_CSV_CHUNK": "T",
-    "CHUNK _SIZE": "100",
+    "CHUNK_SIZE": "100",
     "FIRST_JSUNNOON": "44608",
     "ENCR_KEY": "1010110110",
     "MODIFY_OHLCV_FLAG": "t",
