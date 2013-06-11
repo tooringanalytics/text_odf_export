@@ -49,10 +49,14 @@ log = logging.getLogger(__name__)
 
 
 class TextODFExporter(object):
+	""" Application class for text_odf_export
+	"""
 
 	re_reply_yes = re.compile(r'^(y|(yes))$', re.I)
 
 	def __init__(self):
+		""" Constructor
+		"""
 		self.parser = argparse.ArgumentParser(description='Text File to ODF Exporter.')
 
 	def arg_parse(self):
@@ -111,6 +115,8 @@ class TextODFExporter(object):
 
 	
 	def prompt_interactive(self):
+		""" Prompt the user on stdin to continue with the program.
+		"""
 		s_reply = ""
 		
 		if self.b_binary:
@@ -135,7 +141,8 @@ class TextODFExporter(object):
 
 
 	def text_to_binary(self):
-
+		""" Convert the text csv's in the root directory to binary ODFs on local storage.
+		"""
 		log.debug("Creating ODFProcessor")
 		proc = ODFProcessor(ddstore=None)
 
@@ -145,16 +152,21 @@ class TextODFExporter(object):
 
 
 	def text_to_dynamodb(self):
+		""" Upload the text csv's in the root dir. to DD tables.
+		"""
 		s_aws_access_key_id = self.d_settings["DDACCESSKEY"]
 		s_aws_secret_access_key = self.d_settings["DDSECRETACCESSKEY"]
 		s_region_name = self.d_settings["DDREGION"]
-
+		read_units = int(self.d_settings["DDREADUNITS"])
+		write_units = int(self.d_settings["DDWRITEUNITS"])
 
 		log.debug("Creating DDStore")
 		from dd import DDStore
 		ddstore = DDStore(s_aws_access_key_id,
 							s_aws_secret_access_key,
-							s_region_name)
+							s_region_name,
+							read_units,
+							write_units)
 
 		log.debug("Creating ODFProcessor")
 		proc = ODFProcessor(ddstore)
@@ -176,6 +188,9 @@ class TextODFExporter(object):
 			self.text_to_dynamodb()
 
 	def read_settings(self, s_settings_file):
+		""" Load settings from the settings file
+		@param s_settings_file: Path to the settings file.
+		"""
 		fp_settings = open(s_settings_file, "r")
 
 		s_settings = fp_settings.read()
@@ -184,16 +199,11 @@ class TextODFExporter(object):
 
 		return eval(s_settings)
 
-	def main(self):
-
-		if not os.path.exists("logs"):
-			os.mkdir("logs")
-
-		s_logfile = os.sep.join(["logs", "text_odf_export.log"])
-
-
-		#logging.basicConfig()
-
+	def initialize_logging(self, s_logfile):
+		""" Configure logging handlers, levels & formatting.
+		@param s_logfile: Path to log file
+		"""
+		# Get the root logger
 		logger = logging.getLogger()
 		logger.setLevel(logging.ERROR)
 
@@ -207,6 +217,7 @@ class TextODFExporter(object):
 		ch = logging.StreamHandler()
 		ch.setLevel(logging.INFO)
 
+		# Set formats for file & console handlers
 		log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 		con_formatter = logging.Formatter('********** %(levelname)s - %(message)s')
@@ -220,9 +231,23 @@ class TextODFExporter(object):
 		ls_modules = ['binary', 'odf', 'odfproc', 'odfexcept', 'dd', '__main__']
 
 		# Set debugging on for local modules.
+		# This ensures we don't get Boto & other library debug in our logs
 		for s_module in ls_modules:
 			mod_log = logging.getLogger(s_module)
 			mod_log.setLevel(logging.DEBUG)
+
+	def main(self):
+		""" Entry point for text_odf_export application.
+		"""
+
+		# Make the log directory
+		if not os.path.exists("logs"):
+			os.mkdir("logs")
+
+		# Set the log file path
+		s_logfile = os.sep.join(["logs", "text_odf_export.log"])
+
+		self.initialize_logging(s_logfile)
 
 		self.d_settings = {}
 
@@ -232,17 +257,29 @@ class TextODFExporter(object):
 			log.fatal("Error reading settings.txt.")
 			sys.exit(-1)
 
-		args = self.arg_parse()
+		try:
+			args = self.arg_parse()
 
-		self.set_args(args)
+			self.set_args(args)
 
-		self.s_root_dir = self.d_settings["LD_DD_DATA_ROOT"]
+			self.s_root_dir = self.d_settings["LD_DD_DATA_ROOT"]
 
-		log.info("text_odf_export: Starting up")
-		
-		self.execute()	
+			s_name = re.sub('\.py', '', os.path.basename(__file__))
 
-		log.info("text_odf_export: Completed task.")
+			log.info("%s: Starting up." % s_name)
+			
+			self.execute()	
+		except KeyboardInterrupt:
+			log.error("%s: Terminated prematurely." % s_name)
+			sys.exit(-1)
+		except SystemExit:
+			log.info("%s: Aborted." % s_name)
+			sys.exit(-1)
+		except:
+			log.exception("%s: Unhandled exception. Terminating." % s_name)
+			sys.exit(-1)
+
+		log.info("%s: Completed task." % s_name)
 
 if __name__ == "__main__":
 	app = TextODFExporter()

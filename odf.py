@@ -177,6 +177,9 @@ class ODFBody(BinaryStruct):
 		return l_values
 
 	def to_dict(self, s_odf_basename):
+		""" Return dictionary representation used for DB writes.
+		@param s_odf_basename: Base name (w/o suffix) of the ODF
+		"""
 		odf_recno = self.get_field("ODF_RECNO")
 		f_odf_open = self.get_field("ODF_OPEN")
 		f_odf_high = self.get_field("ODF_HIGH")
