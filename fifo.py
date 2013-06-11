@@ -36,7 +36,7 @@ from binary import BinaryStruct
 import logging
 log = logging.getLogger(__name__)
 
-class FIFOHeader(BinaryStruct):
+class FIFOHeaderEncoder(BinaryStruct):
 	""" ODF Header Binary Struct.
 	"""
 
@@ -47,7 +47,7 @@ class FIFOHeader(BinaryStruct):
 		self.storloc = storloc
 		self.b_text = b_text
 		self.fn_parse = fn_parse
-		super(ODFHeader, self).__init__(padding)
+		super(FIFOHeaderEncoder, self).__init__(padding)
 		s_storloc_field = self.get_field_names()[0]
 		self.d_fields[s_storloc_field] = self.storloc
 
@@ -124,7 +124,7 @@ class FIFOHeader(BinaryStruct):
 
 		return d_odf_hdr_rec
 
-class FIFOBody(BinaryStruct):
+class FIFORecordEncoder(BinaryStruct):
 	""" Represents an individual record in a FIFO file.
 	"""
 
@@ -140,7 +140,7 @@ class FIFOBody(BinaryStruct):
 	def __init__(self):
 		""" Constructor
 		"""
-		super(FIFOBody, self).__init__()
+		super(FIFORecordEncoder, self).__init__()
 
 	def get_recno(self):
 		return self.get_field("FIFO_RECNO")
@@ -180,16 +180,16 @@ class FIFOBody(BinaryStruct):
 		f_fifo_low = self.get_field("FIFO_LOW")
 		f_fifo_close = self.get_field("FIFO_CLOSE")
 
-		d_odf_rec = {
+		d_fifo_rec = {
 					'ODF_NAME': s_odf_basename,
-					'FIFO_RECNO': odf_recno,
+					'FIFO_RECNO': fifo_recno,
 					'FIFO_OPEN': dc.Decimal(str(f_fifo_open)),
 					'FIFO_HIGH' : dc.Decimal(str(f_fifo_high)),
 					'FIFO_LOW' : dc.Decimal(str(f_fifo_low)),
 					'FIFO_CLOSE' : dc.Decimal(str(f_fifo_close)),
 					}
 
-		return d_odf_rec
+		return d_fifo_rec
 
 	def __repr__(self):
 		""" Return text representation of this object (CSV's)
