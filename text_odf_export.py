@@ -239,7 +239,8 @@ class TextODFExporter(object):
 	def main(self):
 		""" Entry point for text_odf_export application.
 		"""
-
+		s_name = re.sub('\.py', '', os.path.basename(__file__))
+		
 		# Make the log directory
 		if not os.path.exists("logs"):
 			os.mkdir("logs")
@@ -264,7 +265,7 @@ class TextODFExporter(object):
 
 			self.s_root_dir = self.d_settings["LD_DD_DATA_ROOT"]
 
-			s_name = re.sub('\.py', '', os.path.basename(__file__))
+			
 
 			log.info("%s: Starting up." % s_name)
 			
