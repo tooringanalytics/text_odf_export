@@ -27,7 +27,9 @@ Output:
 Dependencies:
 --------------
 
-- Boto-2.9.5 (py3kport branch) (should be installed)
+- Boto-2.9.5 (should be pre-installed)
+	-  (py3kport branch for python 3.3)
+	-  (master branch for python 2.7)
 
 Compatibility:
 ---------------
