@@ -240,7 +240,7 @@ class TextODFExporter(object):
 		""" Entry point for text_odf_export application.
 		"""
 		s_name = re.sub('\.py', '', os.path.basename(__file__))
-		
+
 		# Make the log directory
 		if not os.path.exists("logs"):
 			os.mkdir("logs")

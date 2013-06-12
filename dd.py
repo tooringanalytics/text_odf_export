@@ -43,7 +43,7 @@ class DDStore(object):
 	""" DynamoDB data store class. Methods to create/get and write to DD tables.
 	"""
 	TABLE_CREATION_WAIT = 120
-	BATCH_WRITE_SIZE = 20
+	BATCH_WRITE_SIZE = 25 # Max number of batched items supported by AWS API
 	TABLE_WAIT_MAX_RETRIES = 20
 	TABLE_READ_THROUGHPUT = 1
 	TABLE_WRITE_THROUGHPUT = 2
@@ -96,6 +96,21 @@ class DDStore(object):
 				odf_table.refresh()
 		return odf_table
 
+	def do_create_odf_table(self, s_exchange, odf_schema):
+		odf_table = self.connection.create_table(name=s_exchange,
+													schema=odf_schema,
+													read_units=self.read_units,
+													write_units=self.write_units)
+		log.debug("Waiting for table to be active.")
+		while True:
+			odf_table.refresh()
+			if odf_table.status == "CREATING":
+				time.sleep(2)
+			elif odf_table.status == "ACTIVE":
+				break
+		log.debug("Table active")
+		return odf_table
+
 	def create_odf_table(self, s_exchange):
 		""" Create and return a handle to the named ODF table.
 		@param s_exchange: Name of the exchange (also, name of the table)
@@ -109,20 +124,38 @@ class DDStore(object):
 
 		ls_tables = self.connection.list_tables()
 
-		if s_exchange not in ls_tables:
-			
-			odf_table = self.connection.create_table(name=s_exchange,
-													schema=odf_schema,
-													read_units=self.read_units,
-													write_units=self.write_units)
-			log.debug("Waiting %d sec for table %s to be created..." % (self.TABLE_CREATION_WAIT, 
-																	s_exchange))
-			time.sleep(self.TABLE_CREATION_WAIT)
-		else:
+		if s_exchange in ls_tables:
 			odf_table = self.connection.table_from_schema(name=s_exchange,
 															schema=odf_schema)
 			odf_table.refresh()
-		
+			if odf_table.status == "ACTIVE":
+				return odf_table
+			elif odf_table.status == "DELETING":
+				log.debug("Waiting for table to be deleted.")
+				#time.sleep(self.TABLE_CREATION_WAIT)
+				try:
+					while True:
+						time.sleep(2)
+						odf_table.refresh()
+						if odf_table.status == "ACTIVE":
+							break
+				except:
+					odf_table = self.do_create_odf_table(s_exchange, odf_schema)
+					pass
+				return odf_table
+			elif odf_table.status == "CREATING":
+				log.debug("Waiting for table to be created & active.")
+				while True:
+					odf_table.refresh()
+					if odf_table.status == "CREATING":
+						time.sleep(2)
+					elif odf_table.status == "ACTIVE":
+						break
+				log.debug("Table created and active.")
+				return odf_table
+		else:
+			odf_table = self.do_create_odf_table(s_exchange, odf_schema)
+
 		return odf_table
 
 	def put_odf_records(self, odf_table, ld_odf_recs):
@@ -144,6 +177,7 @@ class DDStore(object):
 		num_recs = len(ld_odf_recs)
 		batch_list = self.connection.new_batch_write_list()
 		l_odf_items = []
+		debug_frequency = 10
 		for i, d_odf_rec in enumerate(ld_odf_recs):
 			# First create an Item type for this ODF record
 			ls_attrs = list(d_odf_rec.keys())
@@ -168,16 +202,22 @@ class DDStore(object):
 					response = self.connection.batch_write_item(batch_list)
 					b_unprocessed = response.get('UnprocessedItems', None)
 					if not b_unprocessed:
-						percent_complete = float(i+1)/float(num_recs) * 100.0
-						log.debug("%d records written. %03.2f%% completed." % ((i+1),
-																			percent_complete))
+						percent_complete = int(((i+1)/num_recs) * 100)
+						if percent_complete % debug_frequency == 0:
+							log.debug("%d records written. %d%% completed." % ((i+1),
+																				percent_complete))
 						batch_list = self.connection.new_batch_write_list()
 						l_odf_items = []
 						break
-					# There were unprocessed items. retry after pause	
-					pause_sec = self.BATCH_WRITE_SIZE / self.write_units
-					log.debug("Pausing %d sec." % pause_sec)
-					time.sleep(pause_sec)
+					# There were unprocessed items. retry only these items
+					batch_list = self.connection.new_batch_write_list()
+					unprocessed_list = unprocessed[odf_table.name]
+					items = []
+					for u in unprocessed_list:
+						item_attr = u['PutRequest']['Item']
+						item = odf_table.new_item(attrs=item_attr)
+						items.append(item)
+						batch_list.add_batch(odf_table, puts=items)
 
 
 
