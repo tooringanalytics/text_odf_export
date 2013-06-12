@@ -127,7 +127,7 @@ class BinaryStruct(object):
 		"""
 		size = 0
 		for d_field in self.ld_fields:
-			size += self.d_size[d_field.values()[0]]
+			size += self.d_size[list(d_field.values())[0]]
 		return size
 
 	def get_field_names(self):

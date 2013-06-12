@@ -158,7 +158,7 @@ class TextODFExporter(object):
 		s_aws_secret_access_key = self.d_settings["DDSECRETACCESSKEY"]
 		s_region_name = self.d_settings["DDREGION"]
 		read_units = int(self.d_settings["DDREADUNITS"])
-		write_units = int(self.d_settings["DDWRITEUNITS"])
+		write_units = int(self.d_settings["DDWRITEUNITS_OPT"])
 
 		log.debug("Creating DDStore")
 		from dd import DDStore
@@ -239,6 +239,7 @@ class TextODFExporter(object):
 	def main(self):
 		""" Entry point for text_odf_export application.
 		"""
+		s_name = re.sub('\.py', '', os.path.basename(__file__))
 
 		# Make the log directory
 		if not os.path.exists("logs"):
@@ -264,7 +265,7 @@ class TextODFExporter(object):
 
 			self.s_root_dir = self.d_settings["LD_DD_DATA_ROOT"]
 
-			s_name = re.sub('\.py', '', os.path.basename(__file__))
+			
 
 			log.info("%s: Starting up." % s_name)
 			

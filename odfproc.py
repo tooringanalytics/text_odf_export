@@ -125,7 +125,8 @@ class ODFProcessor:
 		odf_table = self.ddstore.create_odf_table(s_exchange)
 
 		log.debug("Loading table from file: %s" % s_txt_src)
-		self.ddstore.put_odf_records(odf_table, ld_odf_recs)
+		#self.ddstore.put_odf_records(odf_table, ld_odf_recs)
+		self.ddstore.put_odf_records_multi(odf_table, ld_odf_recs)
 		
 
 		log.debug("Moved file: %s" % s_txt_src)

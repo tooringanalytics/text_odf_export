@@ -27,18 +27,22 @@ Output:
 Dependencies:
 --------------
 
-- Boto-2.9.5 (as provided with this program.)
+- Boto-2.9.5 (should be pre-installed)
+	-  (py3kport branch for python 3.3)
+	-  (master branch for python 2.7)
 
 Compatibility:
 ---------------
 
-- python 2.7.2-2.7.5 (for both binary conversion and DynamoDB updates)
-- python 3.0-3.3.2 (only for binary conversion)
+- python 3.0-3.3.2 
+- python 2.7.2-2.7.5
+
 
 Notes:
 --------
 
-- Database writes are currently rate-limited in the code, deliberately to
-ensure DynamoDB does not drop any writes.
+- Database writes are currently rate-limited in the code deliberately to
+ensure DynamoDB does not drop any writes. To increase throughput, increase
+the write throughput for DD tables.
 
 Copyright (C) 2013, Anshuman P.Kanetkar

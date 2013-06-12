@@ -227,7 +227,7 @@ class ODF(BinaryStruct):
 					{'GMT_OFFSET_STORLOC' : 'H'},
 					{'GMT_OFFSET' : 'd'},
 				],
-				'padding' : 28,
+				'padding' : 32,
 				'storloc' : 1,
 				'b_text' : True, 
 				'fn_parse' : float,
@@ -239,7 +239,7 @@ class ODF(BinaryStruct):
 					{'TRADING_START_RECNO_STORLOC' : 'H'},
 					{'TRADING_START_RECNO' : 'd'},
 				],
-				'padding' : 28,
+				'padding' : 32,
 				'storloc' : 2,
 				'b_text' : True, 
 				'fn_parse' : float,
@@ -251,7 +251,7 @@ class ODF(BinaryStruct):
 					{'TRADING_RECS_PERDAY_STORLOC' : 'H'},
 					{'TRADING_RECS_PERDAY': 'd'},
 				],
-				'padding' : 28,
+				'padding' : 32,
 				'storloc' : 3,
 				'b_text' : True, 
 				'fn_parse' : float,
@@ -263,7 +263,7 @@ class ODF(BinaryStruct):
 					{'IDF_CURRENCY_STORLOC' : 'H'},
 					{'IDF_CURRENCY' : 'd',},
 				],
-				'padding' : 28,
+				'padding' : 32,
 				'storloc' : 4,
 				'b_text' : True, 
 				'fn_parse' : float,
@@ -275,7 +275,7 @@ class ODF(BinaryStruct):
 					{'IDF_CURRENCT_MAX_DECIMALS_STORLOC' : 'H'},
 					{'IDF_CURRENCY_MAX_DECIMALS' : 'd'},
 				],
-				'padding' : 28,
+				'padding' : 32,
 				'storloc' : 5,
 				'b_text' : True, 
 				'fn_parse' : float,
@@ -287,7 +287,7 @@ class ODF(BinaryStruct):
 					{'SPLIT_FACTOR_STORLOC' : 'H'},
 					{'SPLIT_FACTOR' : 'd'},
 				],
-				'padding' : 28,
+				'padding' : 32,
 				'storloc' : 6, 
 				'b_text' : True, 
 				'fn_parse' : float,
@@ -299,7 +299,7 @@ class ODF(BinaryStruct):
 					{'CURRENCY_VALUE_OF_POINT_STORLOC' : 'H'},
 					{'CURRENCY_VALUE_OF_POINT' : 'd'},
 				],
-				'padding' : 28,
+				'padding' : 32,
 				'storloc' : 7,
 				'b_text' : True, 
 				'fn_parse' : float,
@@ -401,15 +401,19 @@ class ODF(BinaryStruct):
 		recno_count = 1
 		
 		for i, odf_header in enumerate(self.l_odf_headers):
-			assert(i == recno_count-1)
+			if not (i == recno_count-1):
+				raise ODFException("Failed Header Integrity Test.")
 			recno = odf_header.get_recno()
-			assert(recno == recno_count)
+			if not (recno == recno_count):
+				raise ODFException("Failed Header Integrity Test.")
 			recno_count += 1
 
 		if self.b_fill_missing_headers:
-			assert(recno_count == 14)
+			if not (recno_count == 14):
+				raise ODFException("Failed Header Integrity Test.")
 		else:
-			assert(recno_count == 8)
+			if not (recno_count == 8):
+				raise ODFException("Failed Header Integrity Test.")
 
 	def dedup(self, d_dedup_dict, odf_obj):
 		recno = odf_obj.get_recno()
@@ -438,23 +442,27 @@ class ODF(BinaryStruct):
 		@param fp_bin_odf: Binary stream.
 		"""
 		# Parse headers.
+		# To do: store odf records as a list of dicts in internally instead of 
+		# storing the encoder/decoder binarystruct objects
 		for odf_header in self.l_odf_headers:
 			odf_header.read_bin_stream(fp_bin_odf)
 			# Check if record size is correct (42 bytes)
-			assert(odf_header.get_size() == self.record_size)
+			if not (odf_header.get_size() == self.record_size):
+				raise ODFException("Failed Header Integrity Test.")
 
 		self.validate_headers()
 
 		# Parse body
-		#l_odf_body = []
 		d_dedup_dict = {}
 		try:
 			while True:
 				odf_body = ODFBody()
 				odf_body.read_bin_stream(fp_bin_odf)
 				# Check if record size is correct (42 bytes)
-				assert(odf_body.get_size() == self.record_size)
-				#l_odf_body.append(odf_body)
+				if not (odf_body.get_size() == self.record_size):
+					raise ODFException("Failed Header Integrity Test.")
+				if odf_body.get_recno() == 0:
+					continue
 				self.dedup(d_dedup_dict, odf_body)
 				#log.debug(odf_body.get_field('ODF_RECNO'))
 		except ODFEOF as err:
@@ -471,6 +479,8 @@ class ODF(BinaryStruct):
 		"""
 
 		# Parse headers
+		# To do: store odf records as a list of dicts in internally instead of 
+		# storing the encoder/decoder binarystruct objects
 		for odf_header in self.l_odf_headers:
 			if odf_header.is_in_text():
 				odf_header.read_text_stream(fp_txt_odf)
@@ -500,61 +510,48 @@ class ODF(BinaryStruct):
 
 		l_odf_objs = []
 		buf = None
-		
+		last_header_recno = 0
 		# First hash all headers into the dup-detect dict
 		for odf_header in self.l_odf_headers:
 			if buf is None:
 				buf = odf_header.to_bin()
 			else:
 				buf = buf + odf_header.to_bin()
+			last_header_recno = odf_header.get_recno()
 			#self.dup_detect_bin(d_dup_dict, odf_header)
 
 		# First hash all records into the dup-detect dict
-		for odf_body in self.l_odf_body:
-			if buf is None:
-				buf = odf_body.to_bin()
+		first_recno = last_header_recno + 1
+		last_recno = self.l_odf_body[-1].get_recno()
+		odf_index = 0
+		
+		null_odf_body = ODFBody()
+
+		# Store each record at byte location ((ODF_RECNO-1) * 42)+1
+		# Store missing records as null entries.
+		for recno in range(first_recno, last_recno+1):
+			current_valid_recno = self.l_odf_body[odf_index].get_recno()
+
+			if recno == current_valid_recno:
+				buf = buf + self.l_odf_body[odf_index].to_bin()
+				odf_index += 1
 			else:
-				buf = buf + odf_body.to_bin()
-			
-			#self.dup_detect_bin(d_dup_dict, odf_body)
-
-		# we have to sort recnos in asc. order from the hash, before we encode
-		#l_keys = sorted(d_dup_dict.keys())
-
-		# now pack all records in order of increasing recno.
-		#for key in l_keys:
-		#	buf = buf + d_dup_dict[key].to_bin()
+				buf = buf + null_odf_body.to_bin()
 
 		return buf
-
-	def dup_detect(self, d_dict, s_odf_basename, odf_obj):
-		s_key = self.dup_key(s_odf_basename, odf_obj)
-		if d_dict.has_key(s_key):
-			log.debug("Duplicate record: " + s_key)
-			#assert(False)
-			pass
-
-		d_dict[s_key] = odf_obj.to_dict(s_odf_basename)
-
-	def dup_key(self, s_odf_basename, odf_obj):
-		return ''.join([s_odf_basename, '_', str(odf_obj.get_recno())])
 
 	def to_dict(self, s_odf_basename):
 		""" Create a list of dicts to write to DD. Does deduplication along the fly.
 		"""
 		ld_odf_recs = []
-		
-		#d_dup_dict = {}
 
 		for odf_header in self.l_odf_headers:
-			#self.dup_detect(d_dup_dict, s_odf_basename, odf_header)
 			ld_odf_recs.append(odf_header.to_dict(s_odf_basename))
 
 		for odf_body in self.l_odf_body:
-			#self.dup_detect(d_dup_dict, s_odf_basename, odf_body)
 			ld_odf_recs.append(odf_body.to_dict(s_odf_basename))
 
-		return ld_odf_recs #d_dup_dict.values()
+		return ld_odf_recs
 
 	def __repr__(self):
 		""" Return a text representation of the ODF.
