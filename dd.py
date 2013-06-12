@@ -39,6 +39,48 @@ from odfexcept import *
 import logging
 log = logging.getLogger(__name__)
 
+import threading
+import queue
+
+class IOWorker(threading.Thread):
+	def __init__(self, queue):
+		super(IOWorker, self).__init__()
+		self.queue = queue
+
+	def run(self):
+		""" Threading class entry point for each thread. 
+		Hands off task to the actual worker method.
+		"""
+		while True:
+			l_param = self.queue.get()
+			try:
+				l_param[0](*l_param[1])
+			except:
+				log.exception("Failed task")
+				pass
+			self.queue.task_done()
+
+class IOScheduler(object):
+	def __init__(self, num_threads=4):
+		self.num_threads = num_threads
+		self.queue = queue.Queue()
+		super(IOScheduler, self).__init__()
+
+	def start_workers(self, timeout=None):
+		for i in range(self.num_threads):
+			t = IOWorker(self.queue)
+			t.setDaemon(True)
+			t.start()
+		self.queue.join()
+
+	def queue_request(self, fn_work_method, l_work_method_args, block=True, timeout=None):
+		""" The requst object is a list where the first item is a method, and the
+		second, a list of parameters to the method.
+		"""
+		l_req_obj = [fn_work_method, l_work_method_args]
+		self.queue.put(l_req_obj, block, timeout)
+    
+
 class DDStore(object):
 	""" DynamoDB data store class. Methods to create/get and write to DD tables.
 	"""
@@ -53,13 +95,15 @@ class DDStore(object):
 				s_aws_secret_access_key,
 				s_region_name,
 				read_units=1,
-				write_units=2):
+				write_units=2,
+				num_threads=8):
 		self.s_aws_access_key_id = s_aws_access_key_id
 		self.s_aws_secret_access_key = s_aws_secret_access_key
 		self.s_region_name = s_region_name
 		self.read_units = read_units
 		self.write_units = write_units
-
+		self.num_threads = num_threads
+		
 		self.connection = self.get_connection(s_aws_access_key_id=self.s_aws_access_key_id,
 												s_aws_secret_access_key=self.s_aws_secret_access_key,
 												s_region_name=self.s_region_name)
@@ -158,7 +202,41 @@ class DDStore(object):
 
 		return odf_table
 
-	def put_odf_records(self, odf_table, ld_odf_recs):
+
+	def put_odf_records_multi(self, odf_table, ld_odf_recs):
+
+		num_recs = len(ld_odf_recs)
+
+		num_threads = self.num_threads
+
+		iosched = IOScheduler(num_threads)
+
+		ld_list_partitions = []
+		partition_size = num_recs // num_threads
+		num_partitions = (num_recs // partition_size) + 1
+		
+		#log.debug("num_recs: %d" % num_recs)
+		#log.debug("partition_size: %d" % partition_size)
+		#log.debug("num_partitions: %d" % num_partitions)
+
+		for i in range(num_partitions):
+			pstart = i * partition_size
+			pend = pstart + partition_size
+
+			if pend > num_recs:
+				pend = num_recs
+
+			#log.debug("pstart: %d" % pstart)
+			#log.debug("pend: %d" % pend)
+
+			iosched.queue_request(self.put_odf_records, 
+								[self.connection, odf_table, ld_odf_recs[pstart:pend]])
+
+		log.debug("Starting IO Workers")
+		iosched.start_workers()
+		log.debug("Completed write.")
+
+	def put_odf_records(self, connection, odf_table, ld_odf_recs):
 		""" Batch write the given ODF record items to the given ODF table
 
 		The Boto toolkit uses a max batch size of 25 items -- these are the max.
@@ -175,9 +253,9 @@ class DDStore(object):
 		@param: ld_odf_recs: List of ODF record items, represented as dictionary objects.
 		"""
 		num_recs = len(ld_odf_recs)
-		batch_list = self.connection.new_batch_write_list()
+		batch_list = connection.new_batch_write_list()
 		l_odf_items = []
-		debug_frequency = 10
+		debug_frequency = 100
 		for i, d_odf_rec in enumerate(ld_odf_recs):
 			# First create an Item type for this ODF record
 			ls_attrs = list(d_odf_rec.keys())
@@ -199,18 +277,18 @@ class DDStore(object):
 				# Add Item to the current batch
 				batch_list.add_batch(odf_table, puts=l_odf_items)
 				while True:
-					response = self.connection.batch_write_item(batch_list)
-					b_unprocessed = response.get('UnprocessedItems', None)
-					if not b_unprocessed:
+					response = connection.batch_write_item(batch_list)
+					unprocessed = response.get('UnprocessedItems', None)
+					if not unprocessed:
 						percent_complete = int(((i+1)/num_recs) * 100)
 						if percent_complete % debug_frequency == 0:
 							log.debug("%d records written. %d%% completed." % ((i+1),
 																				percent_complete))
-						batch_list = self.connection.new_batch_write_list()
+						batch_list = connection.new_batch_write_list()
 						l_odf_items = []
 						break
 					# There were unprocessed items. retry only these items
-					batch_list = self.connection.new_batch_write_list()
+					batch_list = connection.new_batch_write_list()
 					unprocessed_list = unprocessed[odf_table.name]
 					items = []
 					for u in unprocessed_list:

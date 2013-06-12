@@ -158,7 +158,7 @@ class TextODFExporter(object):
 		s_aws_secret_access_key = self.d_settings["DDSECRETACCESSKEY"]
 		s_region_name = self.d_settings["DDREGION"]
 		read_units = int(self.d_settings["DDREADUNITS"])
-		write_units = int(self.d_settings["DDWRITEUNITS"])
+		write_units = int(self.d_settings["DDWRITEUNITS_OPT"])
 
 		log.debug("Creating DDStore")
 		from dd import DDStore
