@@ -28,6 +28,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import struct as st
 from odfexcept import *
+import decimal as dc
 
 # Create logger
 import logging
@@ -63,8 +64,19 @@ class BinaryStruct(object):
 	"""
 	s_endian = '<' # One of @,=,<,>,!
 
-	""" Padding specifiers for 28, 32, 36 bytes etc.
+	""" Padding specifiers for 24, 28, 32, 36 bytes etc.
 	"""
+	_ld_append_16 = [
+		{'pad1' : 'd'},
+		{'pad2' : 'd'},
+	]
+
+	_ld_append_24 = [
+		{'pad1' : 'd'},
+		{'pad2' : 'd'},
+		{'pad3' : 'd'},
+	]
+
 	_ld_append_28 = [
 		{'pad1' : 'd'},
 		{'pad2' : 'd'},
@@ -87,7 +99,7 @@ class BinaryStruct(object):
 		{'pad5' : 'L'},
 	]
 
-	def __init__(self, padding=None):
+	def __init__(self, d_fields=None, padding=None):
 		""" Constructor for BinaryStruct base class.
 		@param padding: No. of bytes to append as padding. (default: None if zero)
 		"""
@@ -96,7 +108,11 @@ class BinaryStruct(object):
 
 		# Append the padding specifier to self.ld_fields
 		if padding is not None:
-			if padding == 28:
+			if padding == 16:
+				self.ld_fields = self.ld_fields + self._ld_append_16
+			elif padding == 24:
+				self.ld_fields = self.ld_fields + self._ld_append_24
+			elif padding == 28:
 				self.ld_fields = self.ld_fields + self._ld_append_28
 			elif padding == 32:
 				self.ld_fields = self.ld_fields + self._ld_append_32
@@ -107,11 +123,16 @@ class BinaryStruct(object):
 
 		# Prepare the format string for binary decoing/encoding
 		# and create a dict object with some initial values for all fields
+		
 		for d_field in self.ld_fields:
 			s_width = list(d_field.values())[0]
 			s_field_name = list(d_field.keys())[0]
 			s_struct_fmt = s_struct_fmt + s_width
 			self.d_fields[s_field_name] = 0
+
+		if d_fields is not None:
+			for k, v in d_fields.items():
+				self.d_fields[k] = v
 
 		# Compile the format string for packing/unpacking binary data
 		self.st_struct = st.Struct(s_struct_fmt)
@@ -143,6 +164,18 @@ class BinaryStruct(object):
 		if s_field in self.d_fields:
 			return self.d_fields[s_field]
 		raise ODFInvalidField("Unknown field %s" % s_field)
+	
+	def set_field(self, s_field, value):
+		""" Set the value for the speicifed field.
+		@param s_field: field name.
+		@param value: value to set.
+		"""
+		self.d_fields[s_field] = value
+
+	def update_fields(self, d_fields):
+		for k, v in d_fields.items():
+			self.d_fields[k] = v
+
 
 	""" 'Protected' methods. Not meant for public access, but have to be 
 	implemented by derived classes if unimplimented.
@@ -153,6 +186,7 @@ class BinaryStruct(object):
 		@param s_buf: Binary byte buffer, should be of size self.get_size()
 		"""
 		l_values = self.st_struct.unpack(s_buf)
+		l_values = list(map(lambda x: dc.Decimal(str(x)) if type(x) is float else x, l_values))
 		return l_values
 
 	def parse_bin_stream(self, fp_bin):

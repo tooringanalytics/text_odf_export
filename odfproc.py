@@ -163,6 +163,18 @@ class ODFProcessor:
 			for s_rs3 in ls_rs4s:
 				fn_do(s_exchange, s_rs3, b_show)
 
+	def for_all_odfs_bin_dd(self, config, fn_do, b_show=False):
+		s_root_glob = os.sep.join([s_root_dir, '*'])
+		ls_exchanges = glob.glob(s_root_glob)
+
+		ls_exchanges = self.ddstore.list_tables()
+
+		for s_exchange in ls_exchanges:
+			ls_odf_names = self.ddstore.list_odfs(s_exchange)
+
+			for s_odf_name in ls_odf_names:
+				fn_do(config, s_exchange, s_odf_name, b_show)
+
 	def for_all_odfs_txt(self, s_root_dir, fn_do, b_show=False):
 		s_root_glob = os.sep.join([s_root_dir, '*'])
 		ls_exchanges = glob.glob(s_root_glob)

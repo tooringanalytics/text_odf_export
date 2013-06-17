@@ -47,7 +47,7 @@ class ODFHeader(BinaryStruct):
 		self.storloc = storloc
 		self.b_text = b_text
 		self.fn_parse = fn_parse
-		super(ODFHeader, self).__init__(padding)
+		super(ODFHeader, self).__init__(padding=padding)
 		s_storloc_field = self.get_field_names()[0]
 		self.d_fields[s_storloc_field] = self.storloc
 
@@ -165,11 +165,11 @@ class ODFBody(BinaryStruct):
 			ls_values = line.strip().split(',')
 
 			l_values.append(int(ls_values[0]))		# ODF_RECNO
-			l_values.append(float(ls_values[1]))	# ODF_OPEN
-			l_values.append(float(ls_values[2]))	# ODF_HIGH
-			l_values.append(float(ls_values[3]))	# ODF_LOW
-			l_values.append(float(ls_values[4]))	# ODF_CLOSE
-			l_values.append(float(ls_values[5]))	# ODF_VOLUME
+			l_values.append(Decimal(ls_values[1]))	# ODF_OPEN
+			l_values.append(Decimal(ls_values[2]))	# ODF_HIGH
+			l_values.append(Decimal(ls_values[3]))	# ODF_LOW
+			l_values.append(Decimal(ls_values[4]))	# ODF_CLOSE
+			l_values.append(Decimal(ls_values[5]))	# ODF_VOLUME
 
 		except:
 			raise
@@ -230,7 +230,7 @@ class ODF(BinaryStruct):
 				'padding' : 32,
 				'storloc' : 1,
 				'b_text' : True, 
-				'fn_parse' : float,
+				'fn_parse' : dc.Decimal,
 			},
 		},
 		{
@@ -242,7 +242,7 @@ class ODF(BinaryStruct):
 				'padding' : 32,
 				'storloc' : 2,
 				'b_text' : True, 
-				'fn_parse' : float,
+				'fn_parse' : dc.Decimal,
 			},
 		},
 		{
@@ -254,7 +254,7 @@ class ODF(BinaryStruct):
 				'padding' : 32,
 				'storloc' : 3,
 				'b_text' : True, 
-				'fn_parse' : float,
+				'fn_parse' : dc.Decimal,
 			},
 		},
 		{
@@ -266,7 +266,7 @@ class ODF(BinaryStruct):
 				'padding' : 32,
 				'storloc' : 4,
 				'b_text' : True, 
-				'fn_parse' : float,
+				'fn_parse' : dc.Decimal,
 			},
 		},
 		{
@@ -278,7 +278,7 @@ class ODF(BinaryStruct):
 				'padding' : 32,
 				'storloc' : 5,
 				'b_text' : True, 
-				'fn_parse' : float,
+				'fn_parse' : dc.Decimal,
 			}
 		},
 		{
@@ -290,7 +290,7 @@ class ODF(BinaryStruct):
 				'padding' : 32,
 				'storloc' : 6, 
 				'b_text' : True, 
-				'fn_parse' : float,
+				'fn_parse' : dc.Decimal,
 			},
 		},
 		{
@@ -302,55 +302,55 @@ class ODF(BinaryStruct):
 				'padding' : 32,
 				'storloc' : 7,
 				'b_text' : True, 
-				'fn_parse' : float,
+				'fn_parse' : dc.Decimal,
 			},
 		},
 		{
 			'TICK' : {
 				'ld_fields' : [
 					{'TICK_STORLOC' : 'H'},
-					{'TICK' : 'L'},
+					{'TICK' : 'd'},
 				],
-				'padding' : 36,
+				'padding' : 32,
 				'storloc' : 8,
 				'b_text' : False,
-				'fn_parse' : int, 
+				'fn_parse' : dc.Decimal, 
 			},
 		},
 		{
 			'OHLC_DIVIDER' : {
 				'ld_fields' : [
 					{'OHLC_DIVIDER_STORLOC' : 'H'},
-					{'OHLC_DIVIDER' : 'L'},
+					{'OHLC_DIVIDER' : 'd'},
 				],
-				'padding' : 36,
+				'padding' : 32,
 				'storloc' : 9,
 				'b_text' : False,
-				'fn_parse' : int, 
+				'fn_parse' : dc.Decimal, 
 			},
 		},
 		{
 			'LAST_FCED_RECNO' : {
 				'ld_fields' : [
 					{'LAST_FCED_RECNO_STORLOC' : 'H'},
-					{'LAST_FCED_RECNO' : 'L'},
+					{'LAST_FCED_RECNO' : 'd'},
 				],
-				'padding' : 36,
+				'padding' : 32,
 				'storloc' : 10,
 				'b_text' : False,
-				'fn_parse' : int, 
+				'fn_parse' : dc.Decimal, 
 			},
 		},
 		{
 			'HIGHEST_RECNO' : {
 				'ld_fields' : [
 					{'HIGHEST_RECNO_STORLOC' : 'H'},
-					{'HIGHEST_RECNO' : 'L'},
+					{'HIGHEST_RECNO' : 'd'},
 				],
-				'padding' : 36,
+				'padding' : 32,
 				'storloc' : 11,
 				'b_text' : False,
-				'fn_parse' : int, 
+				'fn_parse' : dc.Decimal, 
 			},
 		},
 		{
@@ -362,7 +362,7 @@ class ODF(BinaryStruct):
 				'padding' : 32,
 				'storloc' : 12,
 				'b_text' : False,
-				'fn_parse' : float, 
+				'fn_parse' : dc.Decimal, 
 			},
 		},
 		{
@@ -374,7 +374,7 @@ class ODF(BinaryStruct):
 				'padding' : 32,
 				'storloc' : 13,
 				'b_text' : False, 
-				'fn_parse' : float,
+				'fn_parse' : dc.Decimal,
 			},
 		}
 	]
@@ -393,6 +393,7 @@ class ODF(BinaryStruct):
 				self.l_odf_headers.append(odf_header)
 
 		self.l_odf_body = []
+		self.d_recno_index = {}
 
 		# Each binary ODF record is 42 bytes long.
 		self.record_size = 42
@@ -449,7 +450,8 @@ class ODF(BinaryStruct):
 			# Check if record size is correct (42 bytes)
 			if not (odf_header.get_size() == self.record_size):
 				raise ODFException("Failed Header Integrity Test.")
-
+			recno = odf_header.get_recno()
+			self.d_recno_index[recno] = odf_header
 		self.validate_headers()
 
 		# Parse body
@@ -464,6 +466,8 @@ class ODF(BinaryStruct):
 				if odf_body.get_recno() == 0:
 					continue
 				self.dedup(d_dedup_dict, odf_body)
+				recno = odf_body.get_recno()
+				self.d_recno_index[recno] = odf_body
 				#log.debug(odf_body.get_field('ODF_RECNO'))
 		except ODFEOF as err:
 			# EOF breaks the loop.
@@ -484,7 +488,9 @@ class ODF(BinaryStruct):
 		for odf_header in self.l_odf_headers:
 			if odf_header.is_in_text():
 				odf_header.read_text_stream(fp_txt_odf)
-		
+				recno = odf_header.get_recno()
+				self.d_recno_index[recno] = odf_header
+
 		self.validate_headers()
 
 		# Parse body
@@ -496,6 +502,8 @@ class ODF(BinaryStruct):
 				odf_body.read_text_stream(fp_txt_odf)
 				#l_odf_body.append(odf_body)
 				self.dedup(d_dedup_dict, odf_body)
+				recno = odf_body.get_recno()
+				self.d_recno_index[recno] = odf_body
 		except ODFEOF as err:
 			pass
 		except:
@@ -540,6 +548,12 @@ class ODF(BinaryStruct):
 
 		return buf
 
+	def to_bin_file(self, s_odf_bin):
+		fp_odf_bin = open(s_odf_bin, "wb")
+		buf = self.to_bin()
+		fp_odf_bin.write(buf)
+		fp_odf_bin.close()
+
 	def to_dict(self, s_odf_basename):
 		""" Create a list of dicts to write to DD. Does deduplication along the fly.
 		"""
@@ -566,3 +580,167 @@ class ODF(BinaryStruct):
 
 		return buf
 
+	def get_highest_recno(self):
+		return self.l_odf_body[-1].get_recno()
+
+
+	def recno_exists(self, recno):
+		if recno in self.d_recno_index:
+			return True
+		return False
+
+	def get_fifo_arr(self, 
+					fifo_count, 
+					trading_start_recno):
+		""" Return a FIFO array from ODF contents
+		"""
+		h = self.get_highest_recno() + 1
+		c = 1
+
+		l_fifo_arr = []
+		while True:
+			h = h - 1
+			if h < trading_start_recno:
+				return l_fifo_arr
+			if not self.recno_exists(h):
+				continue
+			
+			odf_h = self.d_recno_index[h]
+
+			odf_h_open = odf_h.get_field("ODF_OPEN")
+			odf_h_high = odf_h.get_field("ODF_HIGH")
+			odf_h_low = odf_h.get_field("ODF_LOW")
+			odf_h_close = odf_h.get_field("ODF_CLOSE")
+			
+			if odf_h_open == odf_h_high and odf_h_high == odf_h_low and \
+				odf_h_low == odf_h_close:
+				continue
+
+			l_fifo_arr.append({
+					'FIFO_RECNO' : c,
+					'FIFO_OPEN' : odf_h_open,
+					'FIFO_HIGH' : odf_h_high,
+					'FIFO_LOW' : odf_h_low,
+					'FIFO_CLOSE' : odf_h_close,
+				})
+
+			c +=1
+
+			if c > fifo_count:
+				return l_fifo_arr
+
+		return l_fifo_arr
+
+	def get_header_value(self, header_storloc):
+		
+		if header_storloc not in d_recno_index:
+			return dc.Decimal('0')
+
+		odf_header_rec = self.d_recno_index[header_storloc]
+		
+		return odf_header_rec.get_header_value()
+
+	def get_field(recno, s_field_name):
+
+		odf_record = self.d_recno_index[recno]
+
+		return odf_record.get_field(s_field_name)
+
+	def add_missing_record(recno, dc_open, dc_high, dc_low, dc_close, dc_volume=dc.Decimal('0')):
+
+		odf_record = ODFBody(d_fields={
+				'ODF_RECNO' : recno,
+				'ODF_OPEN' : dc_open,
+				'OPEN_HIGH' : dc_high,
+				'OPEN_LOW' : dc_low,
+				'OPEN_CLOSE' : dc_close,
+				'OPEN_VOLUME' : dc_volume,
+			})
+
+		self.d_recno_index[recno] = odf_record
+		self.l_odf_body.append(odf_record)
+
+	def add_missing_header(header_storloc, dc_header_value):
+		d_header_layout = self.ld_header_layout[header_storloc]
+		d_header_kwargs = list(d_header_layout.values())[0]
+		s_header_name = list(d_header_layout.keys())[0]
+		s_header_storloc = "_".join(s_header_name, "STORLOC")
+		d_fields = {
+					s_header_storloc : header_storloc,
+					s_header_name : dc_header_value,
+					}
+
+		odf_hdr_rec = ODFHeader(d_fields=d_fields, **d_header_kwargs)
+
+		self.l_odf_headers.append(odf_hdr_rec)
+		self.d_recno_index[header_storloc] = odf_hdr_rec
+
+
+	""" These are actually underlying storage-mechanism dependent, and shoul;d BE
+		made proxy methods to call storage-mechanism object methods
+	"""
+
+	def is_recno_out_of_limits(self, recno, trading_start_recno, trading_recs_perday):
+		n = recno
+
+		while n > 0:
+			if n > trading_start_recno and n < (trading_recs_perday + trading_start_recno):
+				return False
+			n -= 1400
+
+		return True
+
+	def find_highest_recno(self, trading_start_recno, trading_recs_perday):
+		# highest record no. in the odf
+		r = self.l_odf_body[-1].get_recno()
+
+		while self.is_recno_out_of_limits(r, trading_start_recno, trading_recs_perday):
+			r -= 1
+
+		return r
+		
+	def find_first_non_zero_open(self, trading_start_recno):
+		r = trading_start_recno
+		dc_odf_open = dc.Decimal('0')
+		while True:
+			if r not in d_recno_index:
+				return dc.Decimal('0')
+			odf_rec = self.d_recno_index[r]
+
+			dc_odf_open = odf_rec.get_field('ODF_OPEN')
+
+			if dc_odf_open > 0:
+				break
+			r += 1
+		return dc_odf_open
+
+	def find_prev_highest_recno_close(self, prev_fce_obj):
+		
+		highest_recno_close = 0
+
+		if  prev_fce_obj is not None:
+			ohlc_divider = prev_fce_obj.get_ohlc_divider()
+			highest_recno_close = prev_fce_obj.get_highest_recno_close() / ohlc_divider
+
+		return highest_recno_close
+
+
+		
+
+def open_odf_bin(s_odf_bin):
+	odf_obj = ODF()
+	fp_odf_bin = open(s_odf_bin, "rb")
+	odf_obj.read_bin_stream(fp_odf_bin)
+	fp_odf_bin.close()
+	return odf_obj
+
+def open_odf_text(s_odf_txt):
+	odf_obj = ODF()
+	fp_odf_txt = open(s_odf_txt, "r")
+	odf_obj.read_txt_stream(fp_odf_txt)
+	fp_odf_txt.close()
+	return odf_obj
+
+def open_odf_dd(s_exchange, s_odf_basename):
+	odf_obj = None
+	return odf_obj	

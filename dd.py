@@ -32,6 +32,7 @@ import re
 
 import boto.dynamodb
 from boto.dynamodb.item import Item
+import boto.dynamodb.condition
 
 from odfexcept import *
 
@@ -43,52 +44,80 @@ import threading
 import queue
 
 class IOWorker(threading.Thread):
+	""" Wrapper for IO Worker method. Each class is a single thread of execution.
+	"""
 	def __init__(self, queue):
+		""" Constructor
+		@param queue: Imput queue for worker method.
+		"""
 		super(IOWorker, self).__init__()
 		self.queue = queue
 
 	def run(self):
 		""" Threading class entry point for each thread. 
 		Hands off task to the actual worker method.
+
+		This method expects each input queue entry to have the folowing structure:
+		[ <fn_work_method>, [<l_work_method_args>]]
+		fn_work_method: method object, the worker method that actually does all the work.
+		l_work_method_args: Liost of arguments to pass to fn_work_method
 		"""
 		while True:
 			l_param = self.queue.get()
+			fn_work_method = l_param[0]
+			l_work_method_args = l_param[1]
 			try:
-				l_param[0](*l_param[1])
+				fn_work_method(*l_work_method_args)
 			except:
 				log.exception("Failed task")
 				pass
 			self.queue.task_done()
 
 class IOScheduler(object):
+	""" Scheduler class for multi-threaded I/O
+	"""
 	def __init__(self, num_threads=4):
+		""" Constructor
+		@param num_threads: No. of threads to create. (default: 4)
+		"""
 		self.num_threads = num_threads
 		self.queue = queue.Queue()
 		super(IOScheduler, self).__init__()
 
-	def start_workers(self, timeout=None):
+	def start_workers(self):
+		""" Start the worker threads in daemon mode.
+		"""
 		for i in range(self.num_threads):
 			t = IOWorker(self.queue)
 			t.setDaemon(True)
 			t.start()
+
+	def wait_for_workers(self):
+		""" Wait for all threaded tasks to complete.
+		"""
 		self.queue.join()
 
-	def queue_request(self, fn_work_method, l_work_method_args, block=True, timeout=None):
+	def queue_request(self, fn_work_method, l_work_method_args, b_block=True, timeout=None):
 		""" The requst object is a list where the first item is a method, and the
 		second, a list of parameters to the method.
+		@param fn_work_method: Worker method object
+		@param l_work_method_args: List fo arguments to pass to worker method object
+		@param b_block: Block while waiting to ut items on queue (defauilt: True)
+		@param timeout: Timeout value if blocking call. (default:None=indefinite)
 		"""
 		l_req_obj = [fn_work_method, l_work_method_args]
-		self.queue.put(l_req_obj, block, timeout)
+		self.queue.put(l_req_obj, b_block, timeout)
     
 
 class DDStore(object):
 	""" DynamoDB data store class. Methods to create/get and write to DD tables.
 	"""
-	TABLE_CREATION_WAIT = 120
+	TABLE_CREATION_WAIT = 2
 	BATCH_WRITE_SIZE = 25 # Max number of batched items supported by AWS API
 	TABLE_WAIT_MAX_RETRIES = 20
 	TABLE_READ_THROUGHPUT = 1
 	TABLE_WRITE_THROUGHPUT = 2
+	SINGLE_THREADED_WRITE_THROUGHPUT = 70 # 70 wps is empirically determined min throughput.
 
 	def __init__(self, 
 				s_aws_access_key_id,
@@ -123,91 +152,114 @@ class DDStore(object):
 											aws_secret_access_key=s_aws_secret_access_key)
 		return connection
 
-	def wait_for_table(self, s_table_name):
+	def wait_for_table(self, dd_table):
 		""" Gets a handle to a DynamoDB table.
 		@param s_table_name: Table name.
 		"""
-		odf_table = None
+		log.debug("Waiting for table %s to be active." % dd_table.name)
 		while True:
-			ls_tables = self.connection.list_tables()
-			if s_table_name not in ls_tables:
-				log.debug("Waiting %d sec for table %s to be created..." % (self.TABLE_CREATION_WAIT, 
-																		s_exchange))
+			dd_table.refresh()
+			if dd_table.status == "CREATING":
 				time.sleep(self.TABLE_CREATION_WAIT)
-			else:
-				odf_table = self.connection.table_from_schema(name=s_exchange,
-															schema=odf_schema)
-				odf_table.refresh()
-		return odf_table
+			elif dd_table.status == "ACTIVE":
+				break
+		log.debug("Table %s active" % dd_table.name)
+		return dd_table
 
-	def do_create_odf_table(self, s_exchange, odf_schema):
-		odf_table = self.connection.create_table(name=s_exchange,
-													schema=odf_schema,
+	def create_table(self, s_table_name, table_schema, read_units=None, write_units=None):
+		""" Create a table in DynamoDB with the given name and schema.
+		@param s_table_name: Name of the table to create
+		@param table_schema: hash and range keys for the table, and their types
+		@param read_units: Read throughput
+		@param write_units: Write throughput
+		"""
+		if read_units is None:
+			read_units = self.read_units
+
+		if write_units is None:
+			write_units = self.write_units
+
+		log.debug("Creating DynamoDB Table %s" % s_table_name)
+		dd_table = self.connection.create_table(name=s_table_name,
+													schema=table_schema,
 													read_units=self.read_units,
 													write_units=self.write_units)
-		log.debug("Waiting for table to be active.")
-		while True:
-			odf_table.refresh()
-			if odf_table.status == "CREATING":
-				time.sleep(2)
-			elif odf_table.status == "ACTIVE":
-				break
-		log.debug("Table active")
-		return odf_table
+		self.wait_for_table(dd_table)
 
-	def create_odf_table(self, s_exchange):
-		""" Create and return a handle to the named ODF table.
-		@param s_exchange: Name of the exchange (also, name of the table)
+		return dd_table
+
+	def get_table(self, s_table_name, 
+					hash_key_name, hash_key_proto_value, 
+					range_key_name, range_key_proto_value,
+					read_units=None, write_units=None):
+		""" Return a handle to the named table, with the given schema. Create if it doesn't exist.
+		@param s_table_name: Name of the Table to get/create
+		@param hash_key_name: Name of the table hash key
+		@param hash_key_proto_value: Data type of the hash key (str or int)
+		@param range_key_name: Name of the range key
+		@param range_key_proto_value: Data type of the range key (str, int)
+		@param read_units: Read throughput
+		@param write_units: Write throughput
 		"""
 
-		odf_schema = self.connection.create_schema(hash_key_name='ODF_NAME',
-											hash_key_proto_value=str,
-											range_key_name='ODF_RECNO',
-											range_key_proto_value=int)
-		odf_table = None
+		table_schema = self.connection.create_schema(hash_key_name=hash_key_name,
+													hash_key_proto_value=hash_key_proto_value,
+													range_key_name=range_key_name,
+													range_key_proto_value=range_key_proto_value)
+		dd_table = None
 
 		ls_tables = self.connection.list_tables()
 
-		if s_exchange in ls_tables:
-			odf_table = self.connection.table_from_schema(name=s_exchange,
-															schema=odf_schema)
-			odf_table.refresh()
-			if odf_table.status == "ACTIVE":
-				return odf_table
-			elif odf_table.status == "DELETING":
-				log.debug("Waiting for table to be deleted.")
-				#time.sleep(self.TABLE_CREATION_WAIT)
+		if s_table_name in ls_tables:
+			dd_table = self.connection.table_from_schema(name=s_table_name,
+															schema=table_schema)
+			dd_table.refresh()
+			if dd_table.status == "ACTIVE":
+				return dd_table
+			elif dd_table.status == "DELETING":
+				# Existing table with the same name is being deleted.
 				try:
+					log.debug("Waiting for table %s to be deleted." % dd_table.name)
 					while True:
-						time.sleep(2)
-						odf_table.refresh()
-						if odf_table.status == "ACTIVE":
+						time.sleep(self.TABLE_CREATION_WAIT)
+						dd_table.refresh()
+						if dd_table.status == "ACTIVE":
+							# Table is ready to use
 							break
 				except:
-					odf_table = self.do_create_odf_table(s_exchange, odf_schema)
+					# Table was deleted, so we can send a create request now
+					dd_table = self.create_table(s_table_name, table_schema, 
+												read_units, write_units)
 					pass
-				return odf_table
-			elif odf_table.status == "CREATING":
+				return dd_table
+			elif dd_table.status == "CREATING":
 				log.debug("Waiting for table to be created & active.")
-				while True:
-					odf_table.refresh()
-					if odf_table.status == "CREATING":
-						time.sleep(2)
-					elif odf_table.status == "ACTIVE":
-						break
-				log.debug("Table created and active.")
-				return odf_table
+				self.wait_for_table(dd_table)
+				return dd_table
 		else:
-			odf_table = self.do_create_odf_table(s_exchange, odf_schema)
+			dd_table = self.create_table(s_table_name, table_schema,
+											read_units, write_units)
 
-		return odf_table
+		return dd_table
 
 
-	def put_odf_records_multi(self, odf_table, ld_odf_recs):
+	def put_records_multi(self, dd_table, ld_table_recs):
+		""" Write the given records to the given DynamoDB table.
+		@param dd_table: Table to write to
+		@param ld_table_recs: List of records in dict form to write.
+		"""
+		num_recs = len(ld_table_recs)
 
-		num_recs = len(ld_odf_recs)
+		#num_threads = self.num_threads
 
-		num_threads = self.num_threads
+		# Set no. of threads to the number we need to match the rated
+		# write throughput for this table.
+		num_threads = (dd_table.write_units // self.SINGLE_THREADED_WRITE_THROUGHPUT) + 1
+
+		# Use only a single thread in cases where the difference between
+		# single threaded throughput & rated throughput is not much.
+		if num_threads <= 1:
+			self.put_records(self.connection, dd_table, ld_table_recs)
 
 		iosched = IOScheduler(num_threads)
 
@@ -223,20 +275,25 @@ class DDStore(object):
 			pstart = i * partition_size
 			pend = pstart + partition_size
 
+			if pstart == pend:
+				break
+
 			if pend > num_recs:
 				pend = num_recs
 
 			#log.debug("pstart: %d" % pstart)
 			#log.debug("pend: %d" % pend)
 
-			iosched.queue_request(self.put_odf_records, 
-								[self.connection, odf_table, ld_odf_recs[pstart:pend]])
+			iosched.queue_request(self.put_records, 
+								[self.connection, dd_table, ld_table_recs[pstart:pend]])
 
 		log.debug("Starting IO Workers")
 		iosched.start_workers()
+		iosched.wait_for_workers()
 		log.debug("Completed write.")
 
-	def put_odf_records(self, connection, odf_table, ld_odf_recs):
+	def put_records(self, connection, dd_table, 
+					ld_table_recs):
 		""" Batch write the given ODF record items to the given ODF table
 
 		The Boto toolkit uses a max batch size of 25 items -- these are the max.
@@ -252,30 +309,33 @@ class DDStore(object):
 		@param odf_table: Handle to the ODF table
 		@param: ld_odf_recs: List of ODF record items, represented as dictionary objects.
 		"""
-		num_recs = len(ld_odf_recs)
+		num_recs = len(ld_table_recs)
 		batch_list = connection.new_batch_write_list()
-		l_odf_items = []
+		l_batch_items = []
 		debug_frequency = 100
-		for i, d_odf_rec in enumerate(ld_odf_recs):
+		hash_key_name = dd_table.schema.hash_key_name
+		range_key_name = dd_table.schema.range_key_name
+		for i, d_table_rec in enumerate(ld_table_recs):
 			# First create an Item type for this ODF record
-			ls_attrs = list(d_odf_rec.keys())
-			ls_attrs.remove('ODF_NAME')
-			ls_attrs.remove('ODF_RECNO')
+			ls_attrs = list(d_table_rec.keys())
+			ls_attrs.remove(hash_key_name)
+			ls_attrs.remove(range_key_name)
+
 			d_attrs = {}
 			for s_attr in ls_attrs:
-				d_attrs[s_attr] = d_odf_rec[s_attr]
+				d_attrs[s_attr] = d_table_rec[s_attr]
 
-			odf_item = Item(odf_table, 
-							hash_key=d_odf_rec['ODF_NAME'], 
-							range_key=d_odf_rec['ODF_RECNO'],
+			dd_item = Item(dd_table, 
+							hash_key=hash_key_value, 
+							range_key=range_key_value,
 							attrs=d_attrs)
 
-			l_odf_items.append(odf_item)
+			l_batch_items.append(dd_item)
 			
 			# If we've added BATCH_WRITE_SIZE items, flush the batch_list
 			if (i+1) % self.BATCH_WRITE_SIZE == 0:
 				# Add Item to the current batch
-				batch_list.add_batch(odf_table, puts=l_odf_items)
+				batch_list.add_batch(dd_table, puts=l_batch_items)
 				while True:
 					response = connection.batch_write_item(batch_list)
 					unprocessed = response.get('UnprocessedItems', None)
@@ -285,17 +345,40 @@ class DDStore(object):
 							log.debug("%d records written. %d%% completed." % ((i+1),
 																				percent_complete))
 						batch_list = connection.new_batch_write_list()
-						l_odf_items = []
+						l_batch_items = []
 						break
 					# There were unprocessed items. retry only these items
 					batch_list = connection.new_batch_write_list()
-					unprocessed_list = unprocessed[odf_table.name]
+					unprocessed_list = unprocessed[dd_table.name]
 					items = []
 					for u in unprocessed_list:
 						item_attr = u['PutRequest']['Item']
-						item = odf_table.new_item(attrs=item_attr)
+						item = dd_table.new_item(attrs=item_attr)
 						items.append(item)
 						batch_list.add_batch(odf_table, puts=items)
 
+	def list_exchanges(self):
+		ls_tables = self.connection.list_tables()
+		return ls_tables		
 
+	def list_odfs(self, s_exchange):
+
+		odf_table = self.get_table(s_exchange,
+									'ODF_NAME',
+									str,
+									'ODF_RECNO',
+									int)
+
+		d_scan_filter = {
+			'ODF_RECNO': boto.dynamodb.condition.EQ(1),
+		}
+
+		odf_recs = odf_table.scan(scan_filter=d_scan_filter,
+									attributes_to_get=['ODF_NAME'],)
+
+		ls_odf_names = []
+		for odf_rec in odf_recs:
+			ls_odf_names.append(odf_rec['ODF_NAME'])
+
+		return ls_odf_names
 
