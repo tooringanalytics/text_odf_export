@@ -41,6 +41,8 @@ import argparse
 # Local imports
 from odf import ODF
 from odfproc import ODFProcessor
+import config
+
 
 # Create logger
 import logging
@@ -146,19 +148,21 @@ class TextODFExporter(object):
 		log.debug("Creating ODFProcessor")
 		proc = ODFProcessor(ddstore=None)
 
-		proc.for_all_odfs_txt(s_root_dir=self.s_root_dir, 
+		proc.for_all_odfs_txt(s_root_dir=self.config.s_local_dd_data_root, 
 								fn_do=proc.convert_txt2bin,
-								b_show=self.b_show)		
+								b_show=self.b_show,
+								b_dd_out=False)		
 
 
 	def text_to_dynamodb(self):
 		""" Upload the text csv's in the root dir. to DD tables.
 		"""
-		s_aws_access_key_id = self.d_settings["DDACCESSKEY"]
-		s_aws_secret_access_key = self.d_settings["DDSECRETACCESSKEY"]
-		s_region_name = self.d_settings["DDREGION"]
-		read_units = int(self.d_settings["DDREADUNITS"])
-		write_units = int(self.d_settings["DDWRITEUNITS_OPT"])
+		s_aws_access_key_id = self.config.s_dd_access_key
+		s_aws_secret_access_key = self.config.s_dd_secret_access_key
+		s_region_name = self.config.s_dd_region
+		read_units = int(self.config.dd_read_units)
+		write_units = int(self.config.dd_write_units)
+		write_units_opt = int(self.config.dd_write_units_opt)
 
 		log.debug("Creating DDStore")
 		from dd import DDStore
@@ -166,14 +170,16 @@ class TextODFExporter(object):
 							s_aws_secret_access_key,
 							s_region_name,
 							read_units,
-							write_units)
+							write_units,
+							write_units_opt)
 
 		log.debug("Creating ODFProcessor")
 		proc = ODFProcessor(ddstore)
 
-		proc.for_all_odfs_txt(s_root_dir=self.s_root_dir,
+		proc.for_all_odfs_txt(s_root_dir=self.config.s_local_dd_data_root,
 								fn_do=proc.convert_txt2dd,
-								b_show=self.b_show)	
+								b_show=self.b_show,
+								b_dd_out=True)	
 
 	def execute(self):
 		""" Execute the commands passed on the command line.
@@ -191,6 +197,8 @@ class TextODFExporter(object):
 		""" Load settings from the settings file
 		@param s_settings_file: Path to the settings file.
 		"""
+
+		"""
 		fp_settings = open(s_settings_file, "r")
 
 		s_settings = fp_settings.read()
@@ -198,6 +206,18 @@ class TextODFExporter(object):
 		fp_settings.close()
 
 		return eval(s_settings)
+		"""
+
+		self.config = config.Config()
+
+		try:
+			self.config.read_settings(s_settings_file)
+		except:
+			log.exception("Unknown exception")
+			raise
+
+		return self.config
+
 
 	def initialize_logging(self, s_logfile):
 		""" Configure logging handlers, levels & formatting.
@@ -240,6 +260,7 @@ class TextODFExporter(object):
 		""" Entry point for text_odf_export application.
 		"""
 		s_name = re.sub('\.py', '', os.path.basename(__file__))
+		self.s_name = s_name
 
 		# Make the log directory
 		if not os.path.exists("logs"):
@@ -250,10 +271,8 @@ class TextODFExporter(object):
 
 		self.initialize_logging(s_logfile)
 
-		self.d_settings = {}
-
 		try:
-			self.d_settings = self.read_settings("settings.txt")
+			self.read_settings("settings.txt")
 		except:
 			log.fatal("Error reading settings.txt.")
 			sys.exit(-1)
@@ -262,10 +281,6 @@ class TextODFExporter(object):
 			args = self.arg_parse()
 
 			self.set_args(args)
-
-			self.s_root_dir = self.d_settings["LD_DD_DATA_ROOT"]
-
-			
 
 			log.info("%s: Starting up." % s_name)
 			

@@ -1,8 +1,39 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+'''
+@author Anshuman P.Kanetkar
+
+text_odf_export: Text file to ODF export tool.
+
+Copyright (C) 2013, Anshuman P.Kanetkar
+
+All rights reserved. 
+
+* Licensed under terms specified in the LICENSE file distributed with this program.
+
+DISCLAIMER:
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDER "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+'''
+
+import os
+import os.path
 
 from binary import BinaryStruct
 from odfexcept import *
 
-
+import logging
+log = logging.getLogger(__name__)
 
 class FCESpec(object):
 
@@ -309,8 +340,11 @@ def open_fce(s_exchange, s_odf_symbol, s_fce_bin, config):
 	fce_obj = None
 	if config.b_test_mode:
 		# Open from local directory S3 root
-		s_s3_fce_root = config.s_ld_s3_data_root
+		s_s3_fce_root = config.s_local_s3_data_root
 		s_fce_ld_s3_path = os.sep.join([s_s3_fce_root, s_exchange, "fce", s_odf_symbol, s_fce_bin])
+		s_fce_s3_dir = os.path.dirname(s_fce_ld_s3_path)
+		if not os.path.exists(s_fce_s3_dir):
+			os.makedirs(s_fce_s3_dir)
 		fce_obj = open_fce_bin(s_fce_ld_s3_path)
 	else:
 		# Open from S3 root

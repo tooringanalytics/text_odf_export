@@ -106,7 +106,7 @@ class ODFProcessor:
 
 		return odf
 
-	def convert_txt2dd(self, s_exchange, s_txt_src, b_show=False):
+	def convert_txt2dd(self, s_exchange, odf_table, s_txt_src, b_show=False):
 
 		odf = self.load_odf_txt(s_txt_src)
 
@@ -121,17 +121,12 @@ class ODFProcessor:
 		if b_show:
 			log.info("%s" % s_txt_src)
 			
-		log.debug("Creating/getting table : %s" % s_exchange)
-		odf_table = self.ddstore.create_odf_table(s_exchange)
 
 		log.debug("Loading table from file: %s" % s_txt_src)
-		#self.ddstore.put_odf_records(odf_table, ld_odf_recs)
-		self.ddstore.put_odf_records_multi(odf_table, ld_odf_recs)
-		
-
+		self.ddstore.put_records_multi(odf_table, ld_odf_recs)
 		log.debug("Moved file: %s" % s_txt_src)
 
-	def convert_bin2dd(self, s_exchange, s_bin_src, b_show=False):
+	def convert_bin2dd(self, s_exchange, odf_table, s_bin_src, b_show=False):
 
 		odf = self.load_odf_bin(s_bin_src)
 
@@ -142,12 +137,9 @@ class ODFProcessor:
 		ld_odf_recs = odf.to_dict(s_odf_basename)
 
 		#log.debug(ld_odf_recs)
-		log.debug("Creating/getting table : %s" % s_exchange)
-		odf_table = self.ddstore.create_odf_table(s_exchange)
 
 		log.debug("Loading table from file: %s" % s_bin_src)
-		self.ddstore.put_odf_records(odf_table, ld_odf_recs)
-
+		self.ddstore.put_records_multi(odf_table, ld_odf_recs)
 		log.debug("Moved file: %s" % s_bin_src)
 		
 
@@ -175,7 +167,7 @@ class ODFProcessor:
 			for s_odf_name in ls_odf_names:
 				fn_do(config, s_exchange, s_odf_name, b_show)
 
-	def for_all_odfs_txt(self, s_root_dir, fn_do, b_show=False):
+	def for_all_odfs_txt(self, s_root_dir, fn_do, b_show=False, b_dd_out=False):
 		s_root_glob = os.sep.join([s_root_dir, '*'])
 		ls_exchanges = glob.glob(s_root_glob)
 
@@ -184,6 +176,22 @@ class ODFProcessor:
 			s_exchange_glob = os.sep.join([s_exchange, '*.rs4'])
 			ls_rs4s = glob.glob(s_exchange_glob)
 			s_exchange_basename = os.path.basename(s_exchange)
-			for s_rs4 in ls_rs4s:
-				fn_do(s_exchange_basename, s_rs4, b_show)
+			odf_table =None
+			try:
+
+				if b_dd_out:
+					log.debug("Creating/getting table : %s" % s_exchange_basename)
+					odf_table = self.ddstore.get_table(s_table_name=s_exchange_basename,
+														**ODF.d_odf_dd_schema)
+
+				for s_rs4 in ls_rs4s:
+					if b_dd_out:
+						fn_do(s_exchange_basename, odf_table, s_rs4, b_show)
+					else:	
+						fn_do(s_exchange_basename, s_rs4, b_show)
+
+			finally:
+				log.debug("Resetting table throughput.")
+				if b_dd_out:
+					self.ddstore.toggle_write_throughput(odf_table)
 

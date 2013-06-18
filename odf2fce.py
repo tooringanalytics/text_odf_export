@@ -1,3 +1,31 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+'''
+@author Anshuman P.Kanetkar
+
+text_odf_export: Text file to ODF export tool.
+
+Copyright (C) 2013, Anshuman P.Kanetkar
+
+All rights reserved. 
+
+* Licensed under terms specified in the LICENSE file distributed with this program.
+
+DISCLAIMER:
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDER "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+'''
+
 import datetime as dt
 import os.path
 import re
@@ -6,9 +34,11 @@ import argparse
 import sys
 import glob
 
+from config import Config
 from odfexcept import *
 import fifo
 import odf
+import fce
 from fifo import FIFO
 from odf import ODF
 
@@ -16,130 +46,7 @@ import logging
 import logging.handlers
 log = logging.getLogger(__name__)
 
-class Config(object):
-	
-	def __init__(self):
-		self.ddstore=None
 
-	def read_settings(self, s_settings_file):
-		""" Load settings from the settings file
-		@param s_settings_file: Path to the settings file.
-		"""
-		fp_settings = open(s_settings_file, "r")
-
-		s_settings = fp_settings.read()
-
-		fp_settings.close()
-
-		d_settings = eval(s_settings)
-
-		self.refresh_settings(d_settings)
-		
-	def refresh_settings(self, d_settings):
-
-		self.d_settings = d_settings
-
-		try:
-			self.s_local_dd_data_root = d_settings["LD_DD_DATA_ROOT"]
-			self.s_local_s3_data_root = d_settings["LD_S3_DATA_ROOT"]
-			self.s_dd_data_root = d_settings["LD_DD_DATA_ROOT"]
-			self.s_s3_data_root = d_settings["LD_S3_DATA_ROOT"]
-				
-
-			self.trading_start_recno = int(d_settings["TRADING_START_RECNO"])
-			self.b_process_data = bool(d_settings["PROCESS_DATA"])
-
-			self.s_dd_region = d_settings["DDREGION"]
-			self.dd_read_units = int(d_settings["DDREADUNITS"])
-			self.dd_write_units_opt = int(d_settings["DDWRITEUNITS_OPT"])
-			self.dd_write_units = int(d_settings["DDWRITEUNITS"])
-			self.s_dd_access_key = d_settings["DDACCESSKEY"]
-			self.s_dd_secret_access_key = d_settings["DDSECRETACCESSKEY"]
-
-			self.s_s3_access_key = d_settings["S3ACCESSKEY"]
-			self.s_s3_secret_access_key = d_settings["S3SECRETACCESSKEY"]
-			self.s_s3_bucket= d_settings["S3BUCKET"]
-
-			self.s_dd_data_root = d_settings["DD_DATA_ROOT"]
-			self.s_s3_data_root = d_settings["S3_DATA_ROOT"]
-			self.s_ld_dd_data_root = d_settings["LD_DD_DATA_ROOT"]
-			self.s_ld_s3_data_root = d_settings["LD_S3_DATA_ROOT"]
-			self.s_ld_data_root = d_settings["LD_DATA_ROOT"]
-			self.b_test_mode = bool(d_settings["TEST_MODE"])
-
-			self.b_do_csv_chunk = bool(d_settings["DO_CSV_CHUNK"])
-			self.chunk_size = int(d_settings["CHUNK_SIZE"])
-			
-			self.first_jsunnoon = int(d_settings["FIRST_JSUNNOON"])
-		
-			self.encr_key = int(d_settings["ENCR_KEY"], base=2)
-		
-			self.b_modify_ohlcv_flag = bool(d_settings["MODIFY_OHLCV_FLAG"])
-			
-			self.fifo_count = int(d_settings["FIFO_COUNT"])
-			
-			self.b_process_L31 = bool(d_settings["PROCESS_L31"])
-			self.b_process_L32 = bool(d_settings["PROCESS_L32"])
-			self.b_process_L33 = bool(d_settings["PROCESS_L33"])
-			self.b_process_L34 = bool(d_settings["PROCESS_L34"])
-			self.b_process_L35 = bool(d_settings["PROCESS_L35"])
-			self.b_process_L36 = bool(d_settings["PROCESS_L36"])
-			self.b_process_L37 = bool(d_settings["PROCESS_L37"])
-			self.b_process_L38 = bool(d_settings["PROCESS_L38"])
-			self.b_process_L48 = bool(d_settings["PROCESS_L48"])
-			self.b_process_L58 = bool(d_settings["PROCESS_L58"])
-			self.b_process_L59 = bool(d_settings["PROCESS_L59"])
-			self.b_process_L68 = bool(d_settings["PROCESS_L68"])
-			self.b_process_L69 = bool(d_settings["PROCESS_L69"])
-			self.b_process_L79 = bool(d_settings["PROCESS_L79"])
-			self.b_process_L88 = bool(d_settings["PROCESS_L88"])
-			self.b_process_L98 = bool(d_settings["PROCESS_L98"])
-			
-			self.gmt_offset_storloc = int(d_settings["GMT_OFFSET_STORLOC"])
-			self.trading_start_recno_storloc = int(d_settings["TRADING_START_RECNO_STORLOC"])
-			self.trading_recs_perday_storloc = int(d_settings["TRADING_RECS_PERDAY_STORLOC"])
-			self.idf_currency_storloc = int(d_settings["IDF_CURRENCY_STORLOC"])
-			self.tick_storloc = int(d_settings["TICK_STORLOC"])
-			self.ohlc_divider_storloc = int(d_settings["OHLC_DIVIDER_STORLOC"])
-			self.last_fced_recno_storloc = int(d_settings["LAST_FCED_RECNO_STORLOC"])
-			self.split_factor_storloc = int(d_settings["SPLIT_FACTOR_STORLOC"])
-			self.currency_value_of_point_storloc = int(d_settings["CURRENCY_VALUE_OF_POINT_STORLOC"])
-			self.highest_recno = dc.Decimal(d_settings["HIGHEST_RECNO"])
-			self.highest_recno_close_storloc = int(d_settings["HIGHEST_RECNO_CLOSE_STORLOC"])
-			self.prev_highest_recno_close_storloc = int(d_settings["PREV_HIGHEST_RECNO_CLOSE_STORLOC"])
-		except KeyError as keyerr:
-			log.error("Could not find required key %s in settings file." % str(keyerr))
-			raise
-		except:
-			raise
-
-	def  get_dd_data_root(self):
-		if self.b_test_mode:
-			return self.s_local_dd_data_root
-		return self.s_dd_data_root
-
-	def get_s3_data_root(self):
-		if self.b_test_mode:
-			return self.s_local_s3_data_root
-		return self.s_s3_data_root
-
-	def get_trading_start_recno(self):
-		return self.trading_start_recno
-
-	def get_ddstore(self):
-		if self.ddstore:
-			return self.ddstore
-
-		log.debug("Creating DDStore")
-		from dd import DDStore
-		ddstore = DDStore(self.s_dd_access_key,
-							self.s_dd_secret_access_key,
-							self.s_dd_region,
-							self.dd_read_units,
-							self.dd_write_units)
-
-		self.ddstore = ddstore
-		return ddstore
 
 def get_working_dir():
 	return os.path.dirname(__file__)
@@ -449,7 +356,133 @@ class Odf2Fce(object):
 	def get_current_jsunnoon(self):
 		return None
 
-	def process_fce(fce_spec, fce_obj, odf_obj, s_odf_s3, l_array_fce_intervals):
+	def fill_empty_chunk_records(self, l_chunk_arr):
+		pass
+
+	def find_first_non_zero_chunk_open(self, l_chunk_arr):
+		pass
+
+	def find_last_non_zero_chunk_close(self, l_chunk_arr):
+		pass
+
+	def get_chunk_arr_short(self, l_chunk_arr):
+		pass
+
+	def get_chunk_arr_short_list(self, l_chunk_arr_list):
+		pass
+
+	def write_chunk_files(self, l_chunk_arr_short_list):
+		pass
+
+	def get_chunk_arr(self, l_chunk_arr_short):
+		return None
+
+	def store_zeros_in_chunk_arr(self, l_chunk_arr):
+		pass
+
+	def get_chunk_arr_ready(self, s_chunk_file_name, l_chunk_arr_list, L_no, fce_jsunnoon):
+		pass
+
+	def make_chunk_file_name(s_odf_basename):
+		pass
+
+	def write_chunk_arr(self, fce_spec, odf_basename, odf_recno, odf_obj, l_chunk_arr_list, l_array_fce_intevals):
+		
+		config = self.config
+
+		odf_jsunnoon = fce_spec.odf_jusunnoon
+		chunk_header_recno = config.chunk_size + 1
+
+		for l_fce_interval in l_array_fce_intervals:
+			adjust_ohlc_by = 0
+			adjust_volume_by = 0
+
+			m = -1
+			
+			if odf_recno % 2 == 0:
+				m = 1
+
+			odf_open = odf_obj.get_value(odf_recno, 'ODF_OPEN')
+			odf_high = odf_obj.get_value(odf_recno, 'ODF_HIGH')
+			odf_low = odf_obj.get_value(odf_recno, 'ODF_LOW')
+			odf_close = odf_obj.get_value(odf_recno, 'ODF_CLOSE')
+			odf_volume = odf_obj.get_value(odf_recno, 'ODF_VOLUME')
+
+			if config.b_modify_ohlcv_flag:
+				adjust_ohlc_by = config.tick / config.ohlc_divider
+				adjust_volume_by = int(odf_volume +  odf_volume * 0.02)
+
+			odf_open = odf_open + adjust_ohlc_by
+			odf_high = odf_high + adjust_ohlc_by
+			odf_low = odf_low + adjust_ohlc_by
+			odf_close = odf_close + adjust_ohlc_by
+			odf_volume = odf_volume + adjust_volume_by
+
+			L_no = l_fce_interval[0]
+			bar_int = l_fce_interval[1]
+			weeks_in_fce = l_fce_interval[2]
+			time_shift = l_fce_interval[3]
+			four_wk_bar_flag = l_fce_interval[4]
+
+			bar_close_odf_recno = roundup(odf_recno / bar_int) * bar_int
+			bar_open_odf_recno = bar_close_odf_recno - bar_int + 1
+
+			fce_jsunnoon = config.first_jsunnoon +int((odf_jsunnoon - config.first_jsunnoon) / ( 7 * weeks_in_fce ))* 7 * weeks_in_fce
+
+			odf_week_no_in_fce = 1 + (odf_jsunnoon - fce_jsunnoon) / 7
+
+			fce_recno = rounddown((odf_recno + bar_int -time_shift) / bar_int) + gmt_offset
+			chunk_no = roundup(fce_recno / config.chunk_size)
+
+			s_chunk_file_name = self.make_chunk_file_name(s_odf_basename)
+
+			chunk_recno = fce_recno - (chunk_no -1 ) * config.chunk_size
+
+			l_chunk_arr = self.get_chunk_arr_ready(s_chunk_file_name, l_chunk_arr_list, L_no, fce_jsunnoon)
+
+			begin_week_of_4_week_bar_orig = (1 + (odf_jsunnoon - config.first_jsunnoon) / 7) /4
+ 			begin_week_of_4_week_bar = rounddown(begin_week_of_4_week_bar_orig)
+
+ 			if begin_week_of_4_week_bar == begin_week_of_4_week_bar_orig:
+ 				four_wk_bar_begins_this_odf_week = True
+
+ 			odf_has_no_bar_open = four_wk_bar_begins_this_odf_week * four_wk_bar_flag
+
+ 			if not odf_has_no_bar_open:
+ 				if odf_recno == bar_open_odf_recno or odf_recno == config.trading_start_recno:
+ 					
+ 					odf_obj.set_field(chunk_recno, 'ODF_OPEN', odf_open)
+ 				if odf_recno < chunk_open_recno:
+ 					chunk_open_recno = odf_recno
+
+ 			if not four_wk_bar_flag:
+ 				if odf_recno == bar_close_odf_recno or odf_recno == config.highest_recno:
+ 					odf_obj.set_field(chunk_recno, 'ODF_CLOSE', odf_close)
+ 				if odf_recno > chunk_close_recno:
+ 					chunk_close_recno = odf_recno
+ 			else:
+ 				odf_obj.set_field(chunk_recno, 'ODF_CLOSE', odf_close)
+ 				chunk_close_recno = odf_recno
+
+
+ 			odf_recno_high = odf_obj.get_value(odf_recno, 'ODF_HIGH')
+			odf_recno_low = odf_obj.get_value(odf_recno, 'ODF_LOW')
+
+			chunk_recno_high = odf_obj.get_value(chunk_recno, 'ODF_HIGH')
+			chunk_recno_low = odf_obj.get_value(chunk_recno, 'ODF_LOW')
+			chunk_recno_volume = odf_obj.get_value(chunk_recno, 'ODF_VOLUME')
+
+			if odf_recno_high > chunk_recno_high:
+				odf_obj.set_field(chunk_recno, 'ODF_HIGH', odf_high)
+
+			if odf_recno_low < chunk_recno_low:
+				odf_obj.set_field(chunk_recno, 'ODF_LOW', odf_low)
+
+			odf_obj.set_field(chunk_recno, 'ODF_VOLUME', chunk_recno_volume + chunk_recno_volume)
+
+		return l_chunk_arr_list
+
+	def process_fce(self, fce_spec, fce_obj, odf_obj, s_odf_s3, l_array_fce_intervals):
 		odf_jsunnoon = fce_spec.odf_jsunnoon
 		config = self.config
 		if fce_obj == None:
@@ -484,7 +517,19 @@ class Odf2Fce(object):
 		odf_obj.set_header_value('LAST_FCED_RECNO', config.highest_recno)
 
 
+	def get_odf_s3_path(self, s_exchange, s_symbol, s_odf_basename):
+		s_odf_s3 = ""
+		config = self.config
 
+		if config.b_test_mode:
+			s_odf_s3 = os.sep.join([config.s_local_s3_data_root, s_exchange, "odf", s_odf_basename, ".rs3"])
+			s_odf_s3_dir = os.path.dirname(s_odf_s3)
+			if not os.path.exists(s_odf_s3_dir):
+				os.makedirs(s_odf_s3_dir)
+		else:
+			pass
+
+		return s_odf_s3
 
 	def odf2fce(self):
 		''' Processes ODFs on local storage or S3 and updates FCEs on local storage or DD
@@ -528,6 +573,8 @@ class Odf2Fce(object):
 				''' Extract symbol name from ODF basename (string before first '_')
 				'''
 				s_symbol = self.get_symbol(s_odf_basename)
+
+				s_odf_s3 = self.get_odf_s3_path(s_exchange_basename, s_symbol, s_odf_basename)
 
 				''' Make FIFO name for this ODF from the ODF's basename
 				'''
@@ -576,7 +623,7 @@ class Odf2Fce(object):
 
 				l_array_fce_intervals = self.fill_fce_intervals_array()
 
-				#self.process_fce(s_odf_dd, s_dd_path, s_odf_s3, s_fce_s3, l_array_fce_intervals)
+				self.process_fce(fce_spec, fce_obj, odf_obj, s_odf_s3, l_array_fce_intervals)
 
 
 		log.info(dt.datetime.now())

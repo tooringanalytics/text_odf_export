@@ -113,26 +113,34 @@ class DDStore(object):
 	""" DynamoDB data store class. Methods to create/get and write to DD tables.
 	"""
 	TABLE_CREATION_WAIT = 2
+	TABLE_UPDATE_WAIT = 2
 	BATCH_WRITE_SIZE = 25 # Max number of batched items supported by AWS API
 	TABLE_WAIT_MAX_RETRIES = 20
-	TABLE_READ_THROUGHPUT = 1
-	TABLE_WRITE_THROUGHPUT = 2
+	TABLE_UPDATE_MAX_RETRIES = 200
+	TABLE_READ_THROUGHPUT = 10
+	TABLE_WRITE_THROUGHPUT = 5
+	TABLE_WRITE_THROUGHPUT_OPT = 10
 	SINGLE_THREADED_WRITE_THROUGHPUT = 70 # 70 wps is empirically determined min throughput.
 
 	def __init__(self, 
 				s_aws_access_key_id,
 				s_aws_secret_access_key,
 				s_region_name,
-				read_units=1,
-				write_units=2,
+				read_units=5,
+				write_units=10,
+				write_units_opt=500,
 				num_threads=8):
 		self.s_aws_access_key_id = s_aws_access_key_id
 		self.s_aws_secret_access_key = s_aws_secret_access_key
 		self.s_region_name = s_region_name
 		self.read_units = read_units
 		self.write_units = write_units
+		self.write_units_opt = write_units_opt
 		self.num_threads = num_threads
 		
+		self.d_write_tp_toggle = { self.write_units: self.write_units_opt, 
+									self.write_units_opt: self.write_units }
+
 		self.connection = self.get_connection(s_aws_access_key_id=self.s_aws_access_key_id,
 												s_aws_secret_access_key=self.s_aws_secret_access_key,
 												s_region_name=self.s_region_name)
@@ -183,14 +191,14 @@ class DDStore(object):
 		dd_table = self.connection.create_table(name=s_table_name,
 													schema=table_schema,
 													read_units=self.read_units,
-													write_units=self.write_units)
+													write_units=self.write_units_opt)
 		self.wait_for_table(dd_table)
 
 		return dd_table
 
 	def get_table(self, s_table_name, 
-					hash_key_name, hash_key_proto_value, 
-					range_key_name, range_key_proto_value,
+					s_hash_key_name, hash_key_proto_value, 
+					s_range_key_name, range_key_proto_value,
 					read_units=None, write_units=None):
 		""" Return a handle to the named table, with the given schema. Create if it doesn't exist.
 		@param s_table_name: Name of the Table to get/create
@@ -202,9 +210,15 @@ class DDStore(object):
 		@param write_units: Write throughput
 		"""
 
-		table_schema = self.connection.create_schema(hash_key_name=hash_key_name,
+		if read_units is None:
+			read_units = self.read_units
+
+		if write_units is None:
+			write_units = self.write_units
+
+		table_schema = self.connection.create_schema(hash_key_name=s_hash_key_name,
 													hash_key_proto_value=hash_key_proto_value,
-													range_key_name=range_key_name,
+													range_key_name=s_range_key_name,
 													range_key_proto_value=range_key_proto_value)
 		dd_table = None
 
@@ -243,54 +257,101 @@ class DDStore(object):
 		return dd_table
 
 
+	def toggle_write_throughput(self, dd_table):
+		""" Toggles write throughput between write_units and write_units_opt
+
+		This method should be used after completing the bulk upload on a table.
+		It resets the write throughput to the 'normal' i.e. lower long-term
+		setting.
+
+		@param dd_table: Table for which to toggle write throughput.
+		"""
+		status = False
+		for i in range(self.TABLE_UPDATE_MAX_RETRIES):
+				dd_table.refresh()
+				if not dd_table.status == "ACTIVE":
+					time.sleep(self.TABLE_UPDATE_WAIT)
+					continue	
+				break
+
+		new_write_units = self.d_write_tp_toggle[dd_table.write_units]
+		
+		if dd_table.write_units == new_write_units:
+			return True
+
+		dd_table.update_throughput(read_units=dd_table.read_units, write_units=new_write_units)
+
+		status = False
+		for i in range(self.TABLE_UPDATE_MAX_RETRIES):
+			dd_table.refresh()
+
+			if dd_table.write_units == new_write_units:
+				status = True
+				break
+
+			time.sleep(self.TABLE_UPDATE_WAIT)
+
+		return status
+
+
 	def put_records_multi(self, dd_table, ld_table_recs):
 		""" Write the given records to the given DynamoDB table.
 		@param dd_table: Table to write to
 		@param ld_table_recs: List of records in dict form to write.
 		"""
-		num_recs = len(ld_table_recs)
 
-		#num_threads = self.num_threads
+		try:
+			num_recs = len(ld_table_recs)
 
-		# Set no. of threads to the number we need to match the rated
-		# write throughput for this table.
-		num_threads = (dd_table.write_units // self.SINGLE_THREADED_WRITE_THROUGHPUT) + 1
+			#num_threads = self.num_threads
 
-		# Use only a single thread in cases where the difference between
-		# single threaded throughput & rated throughput is not much.
-		if num_threads <= 1:
-			self.put_records(self.connection, dd_table, ld_table_recs)
+			# Set no. of threads to the number we need to match the rated
+			# write throughput for this table.
+			#log.debug("ddwrite=%d" % dd_table.write_units)
+			#log.debug("ddsingle=%d" % self.SINGLE_THREADED_WRITE_THROUGHPUT)
+			num_threads = (dd_table.write_units // self.SINGLE_THREADED_WRITE_THROUGHPUT) + 1
 
-		iosched = IOScheduler(num_threads)
+			# Use only a single thread in cases where the difference between
+			# single threaded throughput & rated throughput is not much.
+			if num_threads <= 1:
+				log.debug("using single thread")
+				self.put_records(self.connection, dd_table, ld_table_recs)
+			else:
+				iosched = IOScheduler(num_threads)
 
-		ld_list_partitions = []
-		partition_size = num_recs // num_threads
-		num_partitions = (num_recs // partition_size) + 1
+				ld_list_partitions = []
+				partition_size = num_recs // num_threads
+				num_partitions = (num_recs // partition_size) + 1
+				
+				#log.debug("num_threads: %d" % num_threads)
+				#log.debug("num_recs: %d" % num_recs)
+				#log.debug("partition_size: %d" % partition_size)
+				#log.debug("num_partitions: %d" % num_partitions)
+
+				for i in range(num_partitions):
+					pstart = i * partition_size
+					pend = pstart + partition_size
+
+					if pstart == pend:
+						break
+
+					if pend > num_recs:
+						pend = num_recs
+
+					#log.debug("pstart: %d" % pstart)
+					#log.debug("pend: %d" % pend)
+
+					iosched.queue_request(self.put_records, 
+										[self.connection, dd_table, ld_table_recs[pstart:pend]])
+
+				log.debug("Starting IO Workers")
+				iosched.start_workers()
+				iosched.wait_for_workers()
+				log.debug("Completed write.")
+		except:
+			raise
+		log.debug("Write successful.")
 		
-		#log.debug("num_recs: %d" % num_recs)
-		#log.debug("partition_size: %d" % partition_size)
-		#log.debug("num_partitions: %d" % num_partitions)
-
-		for i in range(num_partitions):
-			pstart = i * partition_size
-			pend = pstart + partition_size
-
-			if pstart == pend:
-				break
-
-			if pend > num_recs:
-				pend = num_recs
-
-			#log.debug("pstart: %d" % pstart)
-			#log.debug("pend: %d" % pend)
-
-			iosched.queue_request(self.put_records, 
-								[self.connection, dd_table, ld_table_recs[pstart:pend]])
-
-		log.debug("Starting IO Workers")
-		iosched.start_workers()
-		iosched.wait_for_workers()
-		log.debug("Completed write.")
 
 	def put_records(self, connection, dd_table, 
 					ld_table_recs):
@@ -313,21 +374,21 @@ class DDStore(object):
 		batch_list = connection.new_batch_write_list()
 		l_batch_items = []
 		debug_frequency = 100
-		hash_key_name = dd_table.schema.hash_key_name
-		range_key_name = dd_table.schema.range_key_name
+		s_hash_key_name = dd_table.schema.hash_key_name
+		s_range_key_name = dd_table.schema.range_key_name
 		for i, d_table_rec in enumerate(ld_table_recs):
 			# First create an Item type for this ODF record
 			ls_attrs = list(d_table_rec.keys())
-			ls_attrs.remove(hash_key_name)
-			ls_attrs.remove(range_key_name)
+			ls_attrs.remove(s_hash_key_name)
+			ls_attrs.remove(s_range_key_name)
 
 			d_attrs = {}
 			for s_attr in ls_attrs:
 				d_attrs[s_attr] = d_table_rec[s_attr]
 
 			dd_item = Item(dd_table, 
-							hash_key=hash_key_value, 
-							range_key=range_key_value,
+							hash_key=d_table_rec[s_hash_key_name], 
+							range_key=d_table_rec[s_range_key_name],
 							attrs=d_attrs)
 
 			l_batch_items.append(dd_item)
@@ -341,7 +402,7 @@ class DDStore(object):
 					unprocessed = response.get('UnprocessedItems', None)
 					if not unprocessed:
 						percent_complete = int(((i+1)/num_recs) * 100)
-						if percent_complete % debug_frequency == 0:
+						if percent_complete > 0 and percent_complete % debug_frequency == 0:
 							log.debug("%d records written. %d%% completed." % ((i+1),
 																				percent_complete))
 						batch_list = connection.new_batch_write_list()
@@ -355,7 +416,7 @@ class DDStore(object):
 						item_attr = u['PutRequest']['Item']
 						item = dd_table.new_item(attrs=item_attr)
 						items.append(item)
-						batch_list.add_batch(odf_table, puts=items)
+						batch_list.add_batch(dd_table, puts=items)
 
 	def list_exchanges(self):
 		ls_tables = self.connection.list_tables()

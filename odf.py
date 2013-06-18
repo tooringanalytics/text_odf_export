@@ -165,11 +165,11 @@ class ODFBody(BinaryStruct):
 			ls_values = line.strip().split(',')
 
 			l_values.append(int(ls_values[0]))		# ODF_RECNO
-			l_values.append(Decimal(ls_values[1]))	# ODF_OPEN
-			l_values.append(Decimal(ls_values[2]))	# ODF_HIGH
-			l_values.append(Decimal(ls_values[3]))	# ODF_LOW
-			l_values.append(Decimal(ls_values[4]))	# ODF_CLOSE
-			l_values.append(Decimal(ls_values[5]))	# ODF_VOLUME
+			l_values.append(dc.Decimal(ls_values[1]))	# ODF_OPEN
+			l_values.append(dc.Decimal(ls_values[2]))	# ODF_HIGH
+			l_values.append(dc.Decimal(ls_values[3]))	# ODF_LOW
+			l_values.append(dc.Decimal(ls_values[4]))	# ODF_CLOSE
+			l_values.append(dc.Decimal(ls_values[5]))	# ODF_VOLUME
 
 		except:
 			raise
@@ -378,6 +378,13 @@ class ODF(BinaryStruct):
 			},
 		}
 	]
+
+	d_odf_dd_schema = {
+		's_hash_key_name' : "ODF_NAME",
+		'hash_key_proto_value' : str,
+		's_range_key_name' : "ODF_RECNO",
+		'range_key_proto_value' : int,
+	}
 
 	def __init__(self, b_fill_missing_headers=False):
 		""" Constructor
@@ -724,8 +731,6 @@ class ODF(BinaryStruct):
 
 		return highest_recno_close
 
-
-		
 
 def open_odf_bin(s_odf_bin):
 	odf_obj = ODF()
