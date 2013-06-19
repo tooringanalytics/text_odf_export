@@ -33,6 +33,7 @@ import decimal as dc
 import argparse
 import sys
 import glob
+import math
 
 from odfexcept import *
 import config
@@ -48,18 +49,11 @@ import logging.handlers
 log = logging.getLogger(__name__)
 
 
+def rounddown(n):
+	return math.floor(n)
 
-def get_working_dir():
-	return os.path.dirname(__file__)
-
-def joinpaths(ls_components):
-
-	s_path = os.path.join(ls_components[0], ls_components[1])
-	for i in range(2, len(ls_components)):
-		s_path = os.path.join(s_path, ls_components[i])
-
-	return s_path
-
+def roundup(n):
+	return math.ceil(n)
 
 class Odf2Fce(object):
 	""" Application class for text_odf_export
@@ -140,7 +134,7 @@ class Odf2Fce(object):
 		fifo_obj = None
 		if dd_store.fifo_exists(s_fifo_dd, s_fifo_basename):
 
-			b_older_than_25_days = dd_store.is_fifo_older_than(25)
+			b_older_than_25_days = dd_store.is_fifo_older_than(s_fifo_dd, s_fifo_basename, 25)
 
 			if b_older_than_25_days:
 				log.debug("Updating FIFO (older than 25 days)...")
@@ -186,7 +180,7 @@ class Odf2Fce(object):
 		s3_store = self.s3_store
 
 		odf_tick = odf_obj.get_header_value(config.tick_storloc)
-		odf_ohlc_divider = odf_obj.get_header_value(config.ohlc_divider)
+		odf_ohlc_divider = odf_obj.get_header_value(config.ohlc_divider_storloc)
 		odf_last_fced_recno = odf_obj.get_header_value(config.last_fced_recno_storloc)
 		odf_highest_recno = odf_obj.get_header_value(config.highest_recno_storloc)
 		odf_highest_recno_close = odf_obj.get_header_value(config.highest_recno_close_storloc)
@@ -199,6 +193,24 @@ class Odf2Fce(object):
 			return None
 
 		# Get the missing header values for this ODF
+		# Get the common ODF headers
+		odf_gmt_offset = odf_obj.get_header_value(config.gmt_offset_storloc)
+		odf_trading_start_recno = odf_obj.get_header_value(config.trading_start_recno_storloc)
+		odf_trading_recs_perday = odf_obj.get_header_value(config.trading_recs_perday_storloc)
+		odf_idf_currency = odf_obj.get_header_value(config.idf_currency_storloc)
+		odf_idf_currency_max_decimals = odf_obj.get_header_value(config.idf_currency_max_decimals_storloc)
+		odf_split_factor = odf_obj.get_header_value(config.split_factor_storloc)
+		odf_currency_value_of_point = odf_obj.get_header_value(config.currency_value_of_point_storloc)
+
+		# Save this ODF's headers to public values
+		config.gmt_offset = odf_gmt_offset
+		config.trading_start_recno = odf_trading_start_recno
+		config.trading_recs_perday = odf_trading_recs_perday
+		config.idf_currency = odf_idf_currency
+		config.idf_currency_max_decimals = odf_idf_currency_max_decimals
+		config.split_factor = odf_split_factor
+		config.currency_value_of_point = odf_currency_value_of_point
+
 		odf_tick = fifo_obj.get_tick()
 		odf_ohlc_divider = fifo_obj.get_ohlc_divider()
 		odf_last_fced_recno = 0
@@ -224,23 +236,6 @@ class Odf2Fce(object):
 		# Save the ODF
 		dd_store.save_odf(s_odf_dd, s_odf_basename, odf_obj)
 
-		# Get the common ODF headers
-		odf_gmt_offset = odf_obj.get_header_value(config.gmt_offset_storloc)
-		odf_trading_start_recno = odf_obj.get_header_value(config.trading_start_recno_storloc)
-		odf_trading_recs_perday = odf_obj.get_header_value(config.trading_recs_perday_storloc)
-		odf_idf_currency = odf_obj.get_header_value(config.idf_currency_storloc)
-		odf_idf_currency_max_decimals = odf_obj.get_header_value(config.idf_currency_max_decimals_storloc)
-		odf_split_factor = odf_obj.get_header_value(config.split_factor_storloc)
-		odf_currency_value_of_point = odf_obj.get_header_value(config.currency_value_of_point_storloc)
-
-		# Save this ODF's headers to public values
-		config.gmt_offset = odf_gmt_offset
-		config.trading_start_recno = odf_trading_start_recno
-		config.trading_recs_perday = odf_trading_recs_perday
-		config.idf_currency = odf_idf_currency
-		config.idf_currency_max_decimals = odf_idf_currency_max_decimals
-		config.split_factor = odf_split_factor
-		config.currency_value_of_point = odf_currency_value_of_point
 		config.tick = odf_tick_recno
 		config.ohlc_divider = odf_ohlc_divider
 		config.last_fced_recno = odf_last_fced_recno
@@ -482,10 +477,10 @@ class Odf2Fce(object):
 			close_val = rounddown(chunk_arr.get_field(i+1, 'CLOSE') / self.config.tick)
 
 		d_chunk_header = {
-			'LOWEST_LOW' : chunk_arr.get_header_field('LOWEST_LOW')
-			'VOLUME_TICK' : chunk_arr.get_header_field('VOLUME_TICK')
-			'CHUNK_OPEN_RECNO' : chunk_arr.get_header_field('CHUNK_OPEN_RECNO')
-			'CHUNK_CLOSE_RECNO' : chunk_arr.get_header_field('CHUNK_CLOSE_RECNO')
+			'LOWEST_LOW' : chunk_arr.get_header_field('LOWEST_LOW'),
+			'VOLUME_TICK' : chunk_arr.get_header_field('VOLUME_TICK'),
+			'CHUNK_OPEN_RECNO' : chunk_arr.get_header_field('CHUNK_OPEN_RECNO'),
+			'CHUNK_CLOSE_RECNO' : chunk_arr.get_header_field('CHUNK_CLOSE_RECNO'),
 		}
 
 		chunk_arr_short.set_header(d_header)
@@ -510,10 +505,10 @@ class Odf2Fce(object):
 			chunk_arr.set_field(i+1, 'CLOSE', close_val)
 
 		d_chunk_header = {
-			'LOWEST_LOW' : chunk_arr_short.get_header_field('LOWEST_LOW') / self.config.ohlc_divider
-			'VOLUME_TICK' : chunk_arr_short.get_header_field('VOLUME_TICK')
-			'CHUNK_OPEN_RECNO' : chunk_arr_short.get_header_field('CHUNK_OPEN_RECNO')
-			'CHUNK_CLOSE_RECNO' : chunk_arr_short.get_header_field('CHUNK_CLOSE_RECNO')
+			'LOWEST_LOW' : chunk_arr_short.get_header_field('LOWEST_LOW') / self.config.ohlc_divider,
+			'VOLUME_TICK' : chunk_arr_short.get_header_field('VOLUME_TICK'),
+			'CHUNK_OPEN_RECNO' : chunk_arr_short.get_header_field('CHUNK_OPEN_RECNO'),
+			'CHUNK_CLOSE_RECNO' : chunk_arr_short.get_header_field('CHUNK_CLOSE_RECNO'),
 		}
 
 		chunk_arr.set_header(d_header)
@@ -628,30 +623,30 @@ class Odf2Fce(object):
 			chunk_arr = self.get_chunk_arr_ready(fce_pathspec, s_chunk_file_name, chunk_arr_list, L_no, fce_jsunnoon)
 
 			begin_week_of_4_week_bar_orig = (1 + (odf_jsunnoon - config.first_jsunnoon) / 7) /4
- 			begin_week_of_4_week_bar = rounddown(begin_week_of_4_week_bar_orig)
+			begin_week_of_4_week_bar = rounddown(begin_week_of_4_week_bar_orig)
 
- 			if begin_week_of_4_week_bar == begin_week_of_4_week_bar_orig:
- 				four_wk_bar_begins_this_odf_week = True
+			if begin_week_of_4_week_bar == begin_week_of_4_week_bar_orig:
+				four_wk_bar_begins_this_odf_week = True
 
- 			odf_has_no_bar_open = four_wk_bar_begins_this_odf_week * four_wk_bar_flag
+			odf_has_no_bar_open = four_wk_bar_begins_this_odf_week * four_wk_bar_flag
 
- 			if not odf_has_no_bar_open:
- 				if odf_recno == bar_open_odf_recno or odf_recno == config.trading_start_recno:
- 					chunk_arr.set_field(chunk_recno, 'OPEN', odf_open)
- 				if odf_recno < chunk_open_recno:
- 					chunk_open_recno = odf_recno
+			if not odf_has_no_bar_open:
+				if odf_recno == bar_open_odf_recno or odf_recno == config.trading_start_recno:
+					chunk_arr.set_field(chunk_recno, 'OPEN', odf_open)
+				if odf_recno < chunk_open_recno:
+					chunk_open_recno = odf_recno
 
- 			if not four_wk_bar_flag:
- 				if odf_recno == bar_close_odf_recno or odf_recno == config.highest_recno:
- 					chunk_arr.set_field(chunk_recno, 'CLOSE', odf_close)
- 				if odf_recno > chunk_close_recno:
- 					chunk_close_recno = odf_recno
- 			else:
- 				chunk_arr.set_field(chunk_recno, 'CLOSE', odf_close)
- 				chunk_close_recno = odf_recno
+			if not four_wk_bar_flag:
+				if odf_recno == bar_close_odf_recno or odf_recno == config.highest_recno:
+					chunk_arr.set_field(chunk_recno, 'CLOSE', odf_close)
+				if odf_recno > chunk_close_recno:
+					chunk_close_recno = odf_recno
+			else:
+				chunk_arr.set_field(chunk_recno, 'CLOSE', odf_close)
+				chunk_close_recno = odf_recno
 
 
- 			odf_recno_high = odf_obj.get_value(odf_recno, 'ODF_HIGH')
+			odf_recno_high = odf_obj.get_value(odf_recno, 'ODF_HIGH')
 			odf_recno_low = odf_obj.get_value(odf_recno, 'ODF_LOW')
 
 			chunk_recno_high = chunk_arr.get_field(chunk_recno, 'HIGH')
@@ -752,7 +747,7 @@ class Odf2Fce(object):
 
 				''' Extract symbol name from ODF basename (string before first '_')
 				'''
-				s_symbol = self.dd_store.get_symbol(s_odf_basename)
+				s_symbol = self.dd_store.get_odf_symbol(s_odf_basename)
 
 				s_odf_s3 = self.s3_store.get_odf_path(s_exchange_basename, s_symbol, s_odf_basename)
 
@@ -863,7 +858,7 @@ class Odf2Fce(object):
 		self.d_settings = {}
 
 		try:
-			self.config = Config()
+			self.config = config.Config()
 
 			self.config.read_settings("settings.txt")
 

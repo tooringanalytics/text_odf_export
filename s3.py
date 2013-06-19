@@ -26,9 +26,14 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 '''
 
+
 import boto.s3
 import boto.s3.bucket
 import boto.s3.key
+
+import fce
+import odf
+import chunk
 
 import logging
 log = logging.getLogger(__name__)
@@ -90,7 +95,7 @@ class LocalS3Store(object):
 		s_odf_s3 = ""
 
 		s_odf_s3 = os.sep.join([self.s_root_dir, s_exchange, "odf", s_odf_basename])
-		s_odf_s3 = '.'.join([s_odf_s3, , ".rs3"])
+		s_odf_s3 = '.'.join([s_odf_s3, "rs3"])
 		s_odf_s3_dir = os.path.dirname(s_odf_s3)
 
 		if not os.path.exists(s_odf_s3_dir):
@@ -101,8 +106,14 @@ class LocalS3Store(object):
 	def save_odf(self, s_odf_s3, odf_obj):
 		odf_obj.to_bin_file(s_odf_s3)		
 
-	def get_fce_pathspec(self, s_odf_basename):
-		return fce.FCEPathSpec(s_odf_basename)
+	def get_fce_pathspec(self, s_app_dir,
+								s_exchange_basename,
+								s_symbol,
+								s_odf_basename):
+		return fce.FCEPathSpec(s_app_dir,
+								s_exchange_basename,
+								s_symbol,
+								s_odf_basename)
 
 	def download_fce_file(self, s_fce_bucket, s_fce_file_name, s_fce_tmp_file_name):
 		shutil.copyfile(s_fce_file_name, s_fce_tmp_file_name)
@@ -120,7 +131,7 @@ class LocalS3Store(object):
 		
 
 		fp_bin = open(s_fce_tmp_filename, "rb")
-		
+
 		fce_obj = FCE()
 
 		fce_obj.read_bin_stream(fp_bin)
@@ -183,7 +194,7 @@ class LocalS3Store(object):
 	def download_chunk_file(s_chunk_file_dir_s3, s_chunk_file_name_s3, s_chunk_file_name_tmp):
 		shutil.copyfile(s_chunk_file_name_s3, s_chunk_file_name_tmp)
 
-def get_s3_store(self, config):
+def get_s3_store(config):
 
 	if config.b_test_mode:
 		s3store = LocalS3Store(config.s_local_s3_data_root)

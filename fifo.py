@@ -512,13 +512,13 @@ class FIFO(BinaryStruct):
 
 		fifo_header_rec = self.l_fifo_headers[0]
 
-		return fifo_header_reck.get_field('TICK')
+		return fifo_header_rec.get_field('TICK')
 
 	def get_ohlc_divider(self):
 
 		fifo_header_rec = self.l_fifo_headers[0]
 
-		return fifo_header_reck.get_field('OHLC_DIVIDER')
+		return fifo_header_rec.get_field('OHLC_DIVIDER')
 
 def open_fifo_bin(s_fifo_bin):
 	fifo_obj = FIFO()

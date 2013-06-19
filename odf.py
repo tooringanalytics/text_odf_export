@@ -425,7 +425,7 @@ class ODF(BinaryStruct):
 
 	def set_store(self, store):
 		self.store = store
-	
+
 	def dedup(self, d_dedup_dict, odf_obj):
 		recno = odf_obj.get_recno()
 
@@ -643,7 +643,7 @@ class ODF(BinaryStruct):
 
 	def get_header_value(self, header_storloc):
 		
-		if header_storloc not in d_recno_index:
+		if header_storloc not in self.d_recno_index:
 			return dc.Decimal('0')
 
 		odf_header_rec = self.d_recno_index[header_storloc]

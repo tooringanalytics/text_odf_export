@@ -28,6 +28,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
 import os.path
+import re
 
 from binary import BinaryStruct
 from odfexcept import *
@@ -41,7 +42,6 @@ class FCEPathSpec(object):
 				s_app_dir,
 				s_exchange_basename,
 				s_symbol,
-				s_odf_basename,
 				s_odf_basename):
 		super(FCEPathSpec, self).__init__()
 		self.init_params(s_app_dir, s_exchange_basename, s_symbol, s_odf_basename)
@@ -55,11 +55,11 @@ class FCEPathSpec(object):
 
 		self.odf_jsunnoon = int(s_jsunnoon)
 
-		self.prev_odf_jsunnoon = odf_jsunnoon - 7
+		self.prev_odf_jsunnoon = self.odf_jsunnoon - 7
 
-		self.s_fce_header_file_name = ''.join([s_fce_basename, str(odf_jsunnoon), '01', '.fce'])
+		self.s_fce_header_file_name = ''.join([s_fce_basename, str(self.odf_jsunnoon), '01', '.fce'])
 
-		self.s_prev_fce_header_file_name = ''.join([s_fce_basename, str(prev_odf_jsunnoon), '01', '.fce'])
+		self.s_prev_fce_header_file_name = ''.join([s_fce_basename, str(self.prev_odf_jsunnoon), '01', '.fce'])
 		
 		self.s_fce_s3_prefix = os.sep.join([s_exchange_basename, "fce", s_symbol])
 
@@ -258,7 +258,7 @@ class FCE(BinaryStruct):
 			for s_hdr_name, fce_header in self.d_hdr_index.items():
 				s_config_attr_name = s_hdr_name.tolower()
 				value = 0
-				if hasattr(config, s_config_attr_name)
+				if hasattr(config, s_config_attr_name):
 					value = getattr(config, s_config_attr_name)
 				fce_header.set_field(s_hdr_name, value)
 
