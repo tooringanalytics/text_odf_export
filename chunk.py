@@ -1,5 +1,36 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+'''
+@author Anshuman P.Kanetkar
+
+text_odf_export: Text file to ODF export tool.
+
+Copyright (C) 2013, Anshuman P.Kanetkar
+
+All rights reserved. 
+
+* Licensed under terms specified in the LICENSE file distributed with this program.
+
+DISCLAIMER:
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDER "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+'''
+
 
 from binary import BinaryStruct
+
+import logging
+log = logging.getLogger(__name__)
 
 class ChunkHeader(BinaryStruct):
 	ld_fields = [
@@ -27,6 +58,25 @@ class Chunk(BinaryStruct):
 	def __init__(self, *kargs, **kwargs):
 		super(Chunk, self).__init__(*kargs, **kwargs)
 
+	def to_dict(self):
+		""" Return dictionary representation 
+		"""
+		f_open = self.get_field("OPEN")
+		f_high = self.get_field("IGH")
+		f_low = self.get_field("LOW")
+		f_close = self.get_field("CLOSE")
+		f_volume = self.get_field("VOLUME")
+
+		d_chunk_rec = {
+					'OPEN': dc.Decimal(str(f_open)),
+					'HIGH' : dc.Decimal(str(f_high)),
+					'LOW' : dc.Decimal(str(f_low)),
+					'CLOSE' : dc.Decimal(str(f_close)),
+					'VOLUME' : dc.Decimal(str(f_volume)),
+					}
+
+		return d_chunk_rec
+
 class ShortChunk(BinaryStruct):
 	ld_fields = [
 		# {'<field_name>' : 'x/c/...' },
@@ -40,22 +90,72 @@ class ShortChunk(BinaryStruct):
 	def __init__(self, *kargs, **kwargs):
 		super(ShortChunk, self).__init__(*kargs, **kwargs)
 
+	def to_dict(self):
+		""" Return dictionary representation 
+		"""
+		h_open = self.get_field("OPEN")
+		h_high = self.get_field("HIGH")
+		h_low = self.get_field("LOW")
+		h_close = self.get_field("CLOSE")
+		h_volume = self.get_field("VOLUME")
+
+		d_chunk_rec = {
+					'OPEN': h_open,
+					'HIGH' : h_high,
+					'LOW' : h_low,
+					'CLOSE' : h_close,
+					'VOLUME' : h_volume,
+					}
+
+		return d_chunk_rec
+
 class ChunkArray(object):
 
 
-	def __init__(self, chunk_size):
+	def __init__(self, s_chunk_file_name=None, chunk_size=0):
+		self.s_chunk_file_name = s_chunk_file_name
 		self.d_chunk_arr = {}
+		self.long_chunk_szie = 40
+		self.short_chunk_size = 10
 
-	def set_field(recno, s_field_name, value):
+	def get_name(self):
+		return self.s_chunk_file_name
+
+	def set_field(self, recno, s_field_name, value):
 		if recno not in self.d_chunk_arr:
 			self.d_chunk_arr[recno] = {}
 		self.d_chunk_arr[recno][s_field_name] = value
 
-	def get_field(recno, s_field_name):
+	def get_field(self, recno, s_field_name):
 		self.d_chunk_arr[recno][s_field_name]
 
-	def get_header_field(s_hdr_field_name):
+	def get_header_field(self, s_hdr_field_name):
 		self.d_chunk_arr[self.chunk_size+1][s_hdr_field_name]
+
+	def set_header_field(self, s_hdr_field_name, value):
+		self.d_chunk_arr[self.chunk_size+1][s_hdr_field_name] = value
+
+	def set_header(self, d_chunk_header):
+		self.d_chunk_arr[self.chunk_size+1] = d_chunk_header
+
+	def highest_volume(self):
+		highest_volume = 0
+		for i in range(self.chunk_size):
+			vol = self.get_field(i+1, 'VOLUME')
+			if vol > highest_volume:
+				highest_volume = vol
+
+		return highest_volume
+
+	def lowest_low(self):
+		lowest_low = 999999999
+		for i in range(self.chunk_size):
+			low = self.get_field(i+1, 'LOW')
+			if low > 0 and low < lowest_low:
+				lowest_low = low
+		if lowest_low == 999999999:
+			lowest_low = 0
+		return lowest_low
 
 	def to_bin_short(self):
 		buf = b''
@@ -86,12 +186,84 @@ class ChunkArray(object):
 
 		return buf
 
+	def read_bin_long(self, fp_bin):
+		chunk_size = self.chunk_size
+		for i in range(chunk_size):
+			chunk = Chunk()
+			chunk.read_bin_stream(fp_bin)
+			# Check if record size is correct (40 bytes)
+			if not (chunk.get_size() == self.long_chunk_size):
+				raise ODFException("Failed Chunk Integrity Test.")
+
+			self.d_chunk_arr[i+1] = chunk.to_dict()
+
+	def read_bin_short(self, fp_bin):
+		chunk_size = self.chunk_size
+		for i in range(chunk_size):
+			chunk = ShortChunk()
+			chunk.read_bin_stream(fp_bin)
+			# Check if record size is correct (10 bytes)
+			if not (chunk.get_size() == self.short_chunk_size):
+				raise ODFException("Failed ShortChunk Integrity Test.")
+
+			self.d_chunk_arr[i+1] = chunk.to_dict()
+
 
 class ChunkArrayList(object):
 
 	def __init__(self):
-		self.l_chunk_array = []
+		self.d_chunk_array = {}
+		self.l_chunk_list = []
 
 	def add_chunk_arr(self, chunk_array):
-		self.l_chunk_array.append(chunk_array)
+		self.d_chunk_array[chunk_array.get_name()] = chunk_array
+		self.l_chunk_list.append(chunk_array)
+
+	def get_chunk_array(self, s_chunk_file_name):
+		if s_chunk_file_name in self.d_chunk_array:
+			return self.d_chunk_array[s_chunk_file_name]
+		return None
+
+	def get_chunk_array_at(self, index):
+		return self.l_chunk_list[index]
+
+	def length(self):
+		return len(self.l_chunk_list)
+
+def read_short_chunk_array(self, s_chunk_file_name):
+
+	fp_chunk = open(s_chunk_file_name, "rb")
+
+	chunk_array = ChunkArray(s_chunk_file_name)
+
+	chunk_array.read_bin_short(fp_chunk)
+
+	fp_chunk.close()
+
+	return chunk_array
+
+def make_chunk_file_name(L_no, fce_jsunnoon, chunk_no, s_odf_basename):
+	
+	matchobj = re.match(r'^(.*)\_(\d+)$', s_odf_basename)
+
+	s_prefix = matchobj.group(1)
+
+	s_suffix = ''.join(str(L_no), str(fce_jsunnoon), "%02d" % str(chunk_no))
+
+	s_chunk_file_name = '_'.join([s_prefix, s_suffix])
+
+	s_chunk_file_name = '.'.join([s_chunk_file_name, 'rs3'])
+
+	return s_chunk_file_name
+
+def get_components_from_chunk_name(s_chunk_name):
+
+	# jsunnoon is 5-digit julian day no., chunk_no is zero-padded 2-digit integer
+	matchobj = re.match(r'^(.*)\_(\d+)(\d\d\d\d\d)(\d\d)\.rs3$', s_chunk_name)
+
+	L_no = int(matchobj.group(2))
+	fce_jsunnoon = int(matchobj.group(3))
+	chunk_no = int(matchobj.group(4))
+
+	return (L_no, fce_jsunnoon, chunk_no)	
 

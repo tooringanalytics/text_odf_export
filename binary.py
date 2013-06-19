@@ -166,7 +166,7 @@ class BinaryStruct(object):
 		raise ODFInvalidField("Unknown field %s" % s_field)
 	
 	def set_field(self, s_field, value):
-		""" Set the value for the speicifed field.
+		""" Set the value for the specifed field.
 		@param s_field: field name.
 		@param value: value to set.
 		"""

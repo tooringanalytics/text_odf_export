@@ -35,14 +35,18 @@ from odfexcept import *
 import logging
 log = logging.getLogger(__name__)
 
-class FCESpec(object):
+class FCEPathSpec(object):
 
 	def __init__(self,
+				s_app_dir,
+				s_exchange_basename,
+				s_symbol,
+				s_odf_basename,
 				s_odf_basename):
-		super(FCESpec, self).__init__()
-		self.init_params(s_odf_basename)
+		super(FCEPathSpec, self).__init__()
+		self.init_params(s_app_dir, s_exchange_basename, s_symbol, s_odf_basename)
 
-	def init_params(self, s_odf_basename):
+	def init_params(self, s_app_dir, s_exchange_basename, s_symbol, s_odf_basename):
 		matchobj = re.match(r'^(.*\-18)(\d+).*$', s_odf_basename)
 
 		s_jsunnoon = matchobj.group(2)
@@ -56,6 +60,12 @@ class FCESpec(object):
 		self.s_fce_header_file_name = ''.join([s_fce_basename, str(odf_jsunnoon), '01', '.fce'])
 
 		self.s_prev_fce_header_file_name = ''.join([s_fce_basename, str(prev_odf_jsunnoon), '01', '.fce'])
+		
+		self.s_fce_s3_prefix = os.sep.join([s_exchange_basename, "fce", s_symbol])
+
+		self.s_fce_tmp = os.sep.join([s_app_dir, 'tmp', s_exchange_basename, 'fce', s_symbol])
+		if not os.path.exists(self.s_fce_tmp):
+			os.makedirs(self.s_fce_tmp)
 
 class FCEHeader(BinaryStruct):
 	""" ODF Header Binary Struct.
@@ -295,9 +305,6 @@ class FCE(BinaryStruct):
 		fp_fce_bin.write(buf)
 		fp_fce_bin.close()
 
-	def save_to_s3(self, config, s_fce_header_filename):
-		pass
-
 	def to_dict(self, s_fce_basename):
 		""" Create a list of dicts to write to DD. Does deduplication along the fly.
 		"""
@@ -323,31 +330,3 @@ class FCE(BinaryStruct):
 
 	def get_highest_recno_close(self):
 		return self.d_hdr_index['HIGHEST_RECNO_CLOSE'].get_header_value()
-
-def open_fce_bin(s_fce_bin):
-	fce_obj = None
-	try:
-		fce_obj = FCE()
-		fp_fce_bin = open(s_fce_bin, "rb")
-		fce_obj.read_bin_stream(fp_fce_bin)
-		fp_fce_bin.close()
-	except:
-		fce_obj = None
-		pass
-	return fce_obj
-
-def open_fce(s_exchange, s_odf_symbol, s_fce_bin, config):
-	fce_obj = None
-	if config.b_test_mode:
-		# Open from local directory S3 root
-		s_s3_fce_root = config.s_local_s3_data_root
-		s_fce_ld_s3_path = os.sep.join([s_s3_fce_root, s_exchange, "fce", s_odf_symbol, s_fce_bin])
-		s_fce_s3_dir = os.path.dirname(s_fce_ld_s3_path)
-		if not os.path.exists(s_fce_s3_dir):
-			os.makedirs(s_fce_s3_dir)
-		fce_obj = open_fce_bin(s_fce_ld_s3_path)
-	else:
-		# Open from S3 root
-		pass
-
-	return fce_obj

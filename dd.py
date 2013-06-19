@@ -42,6 +42,7 @@ log = logging.getLogger(__name__)
 
 import threading
 import queue
+import glob
 
 class IOWorker(threading.Thread):
 	""" Wrapper for IO Worker method. Each class is a single thread of execution.
@@ -443,3 +444,110 @@ class DDStore(object):
 
 		return ls_odf_names
 
+	def get_odf(self, s_exchange, s_odf_name):
+		pass
+
+
+class LocalDDStore(object):
+
+	def __init__(self, s_local_dd_data_root):
+		self.s_root_dir = s_local_dd_data_root
+
+	def list_exchanges(self):
+		s_root_glob = os.sep.join([self.s_root_dir, '*'])
+		ls_exchanges = glob.glob(s_root_glob)
+		return ls_exchanges
+
+	def get_exchange_basename(self, s_exchange):
+		return os.path.basename(s_exchange)
+
+	def list_odfs(self, s_exchange):
+		s_exchange_glob = os.sep.join([s_exchange, '*.rs4'])
+		ls_rs4s = glob.glob(s_exchange_glob)
+		return ls_rs4s
+
+	def get_odf_basename(self, s_odf_name):
+		s_odf_basename = os.path.basename(s_odf_name)
+		s_odf_basename = re.sub(r'\.rs3', '', s_odf_basename)
+		return s_odf_basename
+
+	def get_odf_symbol(self, s_odf_basename):
+		m = re.match(r'^(.*)\-.*$', s_odf_basename)
+
+		if not m:
+			raise ODFException("Invalid ODF Name %s" % s_odf_basename)
+
+		return m.group(1)
+
+
+	def open_odf(s_exchange, s_odf_dd):
+		odf_obj = ODF()
+		fp_odf_bin = open(s_odf_bin, "rb")
+		odf_obj.read_bin_stream(fp_odf_bin)
+		fp_odf_bin.close()
+		odf_obj.set_store(self)
+		return odf_obj
+
+	def save_odf(s_odf_dd, s_odf_basename, odf_obj):
+		odf_obj.to_bin_file(s_odf_dd)
+	
+	def get_fifo_path(self, s_exchange, s_odf_basename):
+		s_fifo_dd = '.'.join([s_odf_basename, 'fif'])
+		s_root_dir = os.path.dirname(s_exchange)
+		s_root_dir = os.path.dirname(self.s_root_dir)
+		s_root_dir = os.sep.join([s_root_dir, 'fifo'])
+		s_root_dir = os.sep.join([s_root_dir, os.path.basename(s_exchange)])
+		s_fifo_dd = os.sep.join([s_root_dir, s_fifo_dd])
+		s_fifo_dir = os.path.dirname(s_fifo_dd)
+		if not os.path.exists(s_fifo_dir):
+			os.makedirs(s_fifo_dir)
+		return s_fifo_dd
+
+	def get_fifo_basename(self, s_exchange, s_fifo_dd):
+		s_fifo_basename = os.path.basename(s_fifo_dd)
+		s_fifo_basename = re.sub(r'\.fif', '', s_fifo_basename)
+		return s_fifo_basename
+
+	def fifo_exists(s_fifo_dd, s_fifo_basename):
+		return os.path.exists(s_fifo_dd)
+
+	def is_fifo_older_than(self, s_fifo_dd, s_fifo_basename, days):		
+		dt_fifo_mtime = dt.datetime.fromtimestamp(os.path.getmtime(s_fifo_dd))
+		dt_now = dt.datetime.now()
+		dt_delta = dt_now - dt_fifo_mtime
+
+		if dt_delta > dt.timedelta(days):
+			return True
+
+		return False
+
+	def open_fifo(self, s_fifo_dd, s_fifo_basename):
+		fifo_obj = FIFO()
+		fp_fifo_bin = open(s_fifo_dd, "rb")
+		fifo_obj.read_bin_stream(fp_fifo_bin)
+		fp_fifo_bin.close()
+		fifo_obj.set_store(self)
+		return fifo_obj
+
+	def save_fifo(self, s_fifo_dd, s_fifo_basename, fifo_obj):
+		fifo_obj.to_bin_file(s_fifo_dd)
+
+
+def get_dd_store(self, config):
+
+	if self.config.b_test_mode:
+		return LocalDDStore(config.s_local_dd_data_root)
+
+	s_aws_access_key_id = self.config.s_dd_access_key
+	s_aws_secret_access_key = self.config.s_dd_secret_access_key
+	s_region_name = self.config.s_dd_region
+	read_units = int(self.config.dd_read_units)
+	write_units = int(self.config.dd_write_units)
+	write_units_opt = int(self.config.dd_write_units_opt)
+
+	return DDStore(s_aws_access_key_id,
+					s_aws_secret_access_key,
+					s_region_name,
+					read_units,
+					write_units,
+					write_units_opt)

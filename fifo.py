@@ -257,6 +257,9 @@ class FIFO(BinaryStruct):
 		if not (recno_count == self.fifo_count+2):
 			raise ODFException("Failed Header Integrity Test.")
 
+	def set_store(self, store):
+		self.store = store
+
 	def dedup(self, d_dedup_dict, odf_obj):
 		recno = odf_obj.get_recno()
 
