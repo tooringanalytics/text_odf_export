@@ -125,7 +125,7 @@ class Odf2Fce(object):
 			sys.exit(-1)
 
 	def get_working_dir(self):
-		s_working_dir = os.path.dirname(__file__)
+		s_working_dir = os.path.dirname(os.path.abspath(__file__))
 		return s_working_dir
 
 	def refresh_fifo(self, odf_obj, s_fifo_dd, s_fifo_basename):
@@ -173,7 +173,7 @@ class Odf2Fce(object):
 
 		log.debug("FIFO %s TEXT:\n%s\n" % (s_fifo_dd, buf))
 
-	def fill_missing_odf_header_records(self, odf_obj, s_odf_dd, fifo_obj, fce_pathspec):
+	def fill_missing_odf_header_records(self, odf_obj, s_odf_dd, s_odf_basename, fifo_obj, fce_pathspec):
 
 		config = self.config
 		dd_store = self.dd_store
@@ -218,7 +218,7 @@ class Odf2Fce(object):
 														config.trading_recs_perday)
 		odf_highest_recno_close = odf_obj.get_field(odf_highest_recno, 'ODF_CLOSE')
 
-		prev_fce_obj = s3_store.fce_open(fce_pathspec.s_prev_fce_header_file_name)
+		prev_fce_obj = s3_store.open_fce(fce_pathspec, fce_pathspec.s_prev_fce_header_file_name)
 
 		odf_prev_highest_recno_close = odf_obj.find_prev_highest_recno_close(prev_fce_obj)
 
@@ -230,35 +230,35 @@ class Odf2Fce(object):
 		odf_obj.add_missing_header(config.ohlc_divider_storloc, odf_ohlc_divider)
 		odf_obj.add_missing_header(config.last_fced_recno_storloc, odf_last_fced_recno)
 		odf_obj.add_missing_header(config.highest_recno_storloc, odf_highest_recno)
-		odf_obj.add_missing_header(config.highest_recno_close_storloc, odf_highest_ercno_close)
-		odf_obj.add_missing_header(config.prev_highest_recno_close_storloc, odf_prev_highest_recno_close_storloc)
+		odf_obj.add_missing_header(config.highest_recno_close_storloc, odf_highest_recno_close)
+		odf_obj.add_missing_header(config.prev_highest_recno_close_storloc, odf_prev_highest_recno_close)
 
 		# Save the ODF
 		dd_store.save_odf(s_odf_dd, s_odf_basename, odf_obj)
 
-		config.tick = odf_tick_recno
+		config.tick = odf_tick
 		config.ohlc_divider = odf_ohlc_divider
 		config.last_fced_recno = odf_last_fced_recno
 		config.highest_recno = odf_highest_recno
 		config.highest_recno_close = odf_highest_recno_close
 		config.prev_highest_recno_close = odf_prev_highest_recno_close
 
-	def fill_missing_odf_records(odf_obj):
+	def fill_missing_odf_records(self, odf_obj):
 		config = self.config
 
 		r = config.last_fced_recno
-
-		dc_odf_close = odf_obj.get_field(r, 'ODF_CLOSE')
 
 		if r == 0:
 			r = config.trading_start_recno - 1
 			c = config.prev_highest_recno_close
 
+		dc_odf_close = odf_obj.get_field(r, 'ODF_CLOSE')
+
 		while True:
 			r = r + 1
 			if r > config.highest_recno:
 				return True
-			if odf_obj.is_recno_out_of_limits(r):
+			if odf_obj.is_recno_out_of_limits(r, config.trading_start_recno, config.trading_recs_perday):
 				continue
 
 			dc_odf_open = odf_obj.get_field(r, 'ODF_OPEN')
@@ -352,11 +352,12 @@ class Odf2Fce(object):
 		
 		today = dt.datetime.now()
 		
-		today_noon = dt.datetime(today.year, today.month, today,day, 12, 0)
+		today_noon = dt.datetime(today.year, today.month, today.day, 12, 0)
 
-		sunday_last_noon = today_noon - timedelta(days=day.weekday()) - timedelta(days=1)
+		sunday_last_noon = today_noon - dt.timedelta(days=today_noon.weekday()) - dt.timedelta(days=1)
 
-		return self.get_julian_day_number(sunday_last_noon)
+		# Return only least significant 5 digits of JDN
+		return self.get_julian_day_number(sunday_last_noon) % 100000
 
 	def write_chunk_files(self, chunk_arr_short_list):
 		
@@ -782,7 +783,7 @@ class Odf2Fce(object):
 				'''
 				fifo_obj = self.refresh_fifo(odf_obj, s_fifo_dd, s_fifo_basename)
 
-				self.fill_missing_odf_header_records(odf_obj, s_odf_dd, fifo_obj, fce_pathspec)
+				self.fill_missing_odf_header_records(odf_obj, s_odf_dd, s_odf_basename, fifo_obj, fce_pathspec)
 
 				self.fill_missing_odf_records(odf_obj)
 
@@ -804,13 +805,30 @@ class Odf2Fce(object):
 		self.odf2fce()
 
 
-	def initialize_logging(self, s_logfile):
+	def initialize_logging(self, s_name):
 		""" Configure logging handlers, levels & formatting.
 		@param s_logfile: Path to log file
 		"""
+		s_cwd = self.get_working_dir()
+
+		s_logdir = os.sep.join([s_cwd, "logs"])
+		# Make the log directory
+		if not os.path.exists(s_logdir):
+			os.makedirs(s_logdir)
+
+		s_logfile = '.'.join([s_name, "log"])
+
+		# Set the log file path
+		s_logfile = os.sep.join([s_logdir, s_logfile])
+
 		# Get the root logger
 		logger = logging.getLogger()
 		logger.setLevel(logging.ERROR)
+
+
+		s_logdir = os.path.dirname(s_logfile)
+		if not os.path.exists(s_logdir):
+			os.makedirs(s_logdir)
 
 		# Create log file handler
 		fh = logging.handlers.RotatingFileHandler(s_logfile, 
@@ -833,7 +851,8 @@ class Odf2Fce(object):
 		logger.addHandler(fh)
 		logger.addHandler(ch)
 
-		ls_modules = ['binary', 'fifo', 'odf', 'odfproc', 'odfexcept', 'dd', '__main__']
+		ls_modules = ['binary', 'fifo', 'odf', 'fce', 'odfproc', 'odfexcept',
+						'dd', 'odf2fce', 's3', 'config', 'chunk', '__main__']
 
 		# Set debugging on for local modules.
 		# This ensures we don't get Boto & other library debug in our logs
@@ -841,19 +860,14 @@ class Odf2Fce(object):
 			mod_log = logging.getLogger(s_module)
 			mod_log.setLevel(logging.DEBUG)
 
+
 	def main(self):
 		""" Entry point for text_odf_export application.
 		"""
-		s_name = re.sub('\.py', '', os.path.basename(__file__))
+		s_name = re.sub(r'\.py', '', os.path.basename(__file__))
 
-		# Make the log directory
-		if not os.path.exists("logs"):
-			os.mkdir("logs")
-
-		# Set the log file path
-		s_logfile = os.sep.join(["logs", "text_odf_export.log"])
-
-		self.initialize_logging(s_logfile)
+		
+		self.initialize_logging(s_name)
 
 		self.d_settings = {}
 
@@ -863,7 +877,7 @@ class Odf2Fce(object):
 			self.config.read_settings("settings.txt")
 
 		except:
-			log.exception()
+			log.exception("Error in settings:")
 			log.fatal("Error reading settings.txt.")
 			sys.exit(-1)
 

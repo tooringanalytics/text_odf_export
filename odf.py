@@ -31,6 +31,7 @@ import struct as st
 import decimal as dc
 from odfexcept import *
 from binary import BinaryStruct
+from collections import OrderedDict
 
 # Create logger
 import logging
@@ -40,7 +41,7 @@ class ODFHeader(BinaryStruct):
 	""" ODF Header Binary Struct.
 	"""
 
-	def __init__(self, ld_fields, padding, storloc, b_text, fn_parse):
+	def __init__(self, ld_fields, padding, storloc, b_text, fn_parse, value=0):
 		""" Constructor.
 		"""
 		self.ld_fields = ld_fields
@@ -49,8 +50,9 @@ class ODFHeader(BinaryStruct):
 		self.fn_parse = fn_parse
 		super(ODFHeader, self).__init__(padding=padding)
 		s_storloc_field = self.get_field_names()[0]
+		s_header_field = self.get_field_names()[1]
 		self.d_fields[s_storloc_field] = self.storloc
-
+		self.d_fields[s_header_field] = value
 
 	def is_in_text(self):
 		""" Does this header field appear in the source text file?
@@ -73,6 +75,7 @@ class ODFHeader(BinaryStruct):
 		line = fp_txt.readline()
 		if line == "" or not line:
 			raise ODFIOError("Empty file")
+		#print(line)
 		l_values[1] = self.fn_parse(line.strip())
 
 		#log.debug(l_values)
@@ -101,7 +104,7 @@ class ODFHeader(BinaryStruct):
 		s_buf = str(ls_values[1]) + '\n'
 		return s_buf
 
-	def to_dict(self, s_odf_basename):
+	def to_dict(self):
 
 		s_header_name = self.get_header_name()
 		f_header_val = self.get_header_value()
@@ -113,16 +116,15 @@ class ODFHeader(BinaryStruct):
 			s_header_name : dc.Decimal(str(f_header_val)),
 		}
 		'''
-		d_odf_hdr_rec = {
-			'ODF_NAME': s_odf_basename,
-			'ODF_RECNO': odf_recno,
-			'ODF_OPEN': dc.Decimal(str(f_header_val)),
-			'ODF_HIGH' : dc.Decimal(str(0)),
-			'ODF_LOW' : dc.Decimal(str(0)),
-			'ODF_CLOSE' : dc.Decimal(str(0)),
-			'ODF_VOLUME' : dc.Decimal(str(0)),
-		}
+		d_odf_hdr_rec = OrderedDict()
 
+		d_odf_hdr_rec['ODF_RECNO'] = odf_recno
+		d_odf_hdr_rec['ODF_OPEN'] = dc.Decimal(str(f_header_val))
+		d_odf_hdr_rec['ODF_HIGH'] = dc.Decimal(str(0))
+		d_odf_hdr_rec['ODF_LOW'] = dc.Decimal(str(0))
+		d_odf_hdr_rec['ODF_CLOSE'] = dc.Decimal(str(0))
+		d_odf_hdr_rec['ODF_VOLUME'] = dc.Decimal(str(0))
+		
 		return d_odf_hdr_rec
 
 class ODFBody(BinaryStruct):
@@ -139,10 +141,10 @@ class ODFBody(BinaryStruct):
 		{'ODF_VOLUME' : 'd'},
 	]
 
-	def __init__(self):
+	def __init__(self, d_fields=None):
 		""" Constructor
 		"""
-		super(ODFBody, self).__init__()
+		super(ODFBody, self).__init__(d_fields=d_fields)
 
 	def get_recno(self):
 		return self.get_field("ODF_RECNO")
@@ -176,7 +178,7 @@ class ODFBody(BinaryStruct):
 
 		return l_values
 
-	def to_dict(self, s_odf_basename):
+	def to_dict(self):
 		""" Return dictionary representation used for DB writes.
 		@param s_odf_basename: Base name (w/o suffix) of the ODF
 		"""
@@ -187,15 +189,14 @@ class ODFBody(BinaryStruct):
 		f_odf_close = self.get_field("ODF_CLOSE")
 		f_odf_volume = self.get_field("ODF_VOLUME")
 
-		d_odf_rec = {
-					'ODF_NAME': s_odf_basename,
-					'ODF_RECNO': odf_recno,
-					'ODF_OPEN': dc.Decimal(str(f_odf_open)),
-					'ODF_HIGH' : dc.Decimal(str(f_odf_high)),
-					'ODF_LOW' : dc.Decimal(str(f_odf_low)),
-					'ODF_CLOSE' : dc.Decimal(str(f_odf_close)),
-					'ODF_VOLUME' : dc.Decimal(str(f_odf_volume)),
-					}
+		d_odf_rec = OrderedDict()
+
+		d_odf_rec['ODF_RECNO'] = odf_recno
+		d_odf_rec['ODF_OPEN'] = dc.Decimal(str(f_odf_open))
+		d_odf_rec['ODF_HIGH'] = dc.Decimal(str(f_odf_high))
+		d_odf_rec['ODF_LOW'] = dc.Decimal(str(f_odf_low))
+		d_odf_rec['ODF_CLOSE'] = dc.Decimal(str(f_odf_close))
+		d_odf_rec['ODF_VOLUME'] = dc.Decimal(str(f_odf_volume))
 
 		return d_odf_rec
 
@@ -389,8 +390,9 @@ class ODF(BinaryStruct):
 	def __init__(self, b_fill_missing_headers=False):
 		""" Constructor
 		"""
-		self.l_odf_headers = []
+		#self.l_odf_headers = []
 		self.b_fill_missing_headers = b_fill_missing_headers
+		'''
 		for d_header in self.ld_header_layout:
 			s_hdr_name = list(d_header.keys())[0]
 			# Only add a header field if it is a 'compulsory' field
@@ -398,8 +400,8 @@ class ODF(BinaryStruct):
 			if d_header[s_hdr_name]['b_text'] or b_fill_missing_headers:
 				odf_header = ODFHeader(**d_header[s_hdr_name])
 				self.l_odf_headers.append(odf_header)
-
-		self.l_odf_body = []
+		'''
+		#self.l_odf_body = []
 		self.d_recno_index = {}
 
 		# Each binary ODF record is 42 bytes long.
@@ -426,26 +428,10 @@ class ODF(BinaryStruct):
 	def set_store(self, store):
 		self.store = store
 
-	def dedup(self, d_dedup_dict, odf_obj):
-		recno = odf_obj.get_recno()
 
-		if recno in d_dedup_dict:
-			log.debug("Duplicate detected with recno: %d" % recno)
-			pass
-
-		d_dedup_dict[recno] = odf_obj
-
-	def get_dedup_keys(self, d_dedup_dict):
-		return sorted(d_dedup_dict.keys())
-
-	def get_dedup_objs(self, d_dedup_dict):
-		l_keys = self.get_dedup_keys(d_dedup_dict)
-
-		l_dedup_objs = []
-		for key in l_keys:
-			l_dedup_objs.append(d_dedup_dict[key])
-
-		return l_dedup_objs
+	def get_field(self, recno, s_field_name):
+		odf_rec = self.d_recno_index[recno]
+		return odf_rec[s_field_name]
 
 	def read_bin_stream(self, fp_bin_odf):
 		""" Read and parse ODF from a binary stream. Also eliminate duplicate records.
@@ -455,36 +441,49 @@ class ODF(BinaryStruct):
 		# Parse headers.
 		# To do: store odf records as a list of dicts in internally instead of 
 		# storing the encoder/decoder binarystruct objects
-		for odf_header in self.l_odf_headers:
+
+		for i in range(len(self.ld_header_layout)):
+			d_header = self.ld_header_layout[i]
+			s_hdr_name = list(d_header.keys())[0]
+			d_hdr_param = list(d_header.values())[0]
+
+			#if not d_hdr_param['b_text'] and not self.b_fill_missing_headers:
+			#	continue
+
+			odf_header = ODFHeader(**d_hdr_param)
 			odf_header.read_bin_stream(fp_bin_odf)
-			# Check if record size is correct (42 bytes)
+			
 			if not (odf_header.get_size() == self.record_size):
 				raise ODFException("Failed Header Integrity Test.")
-			recno = odf_header.get_recno()
-			self.d_recno_index[recno] = odf_header
-		self.validate_headers()
 
+			recno = odf_header.get_recno()
+			
+			# check if the header record we read was stored.
+			if recno == 0:
+				continue
+
+			self.d_recno_index[recno] = odf_header.to_dict()
+			#log.debug(odf_header.d_fields)
 		# Parse body
-		d_dedup_dict = {}
 		try:
 			while True:
 				odf_body = ODFBody()
 				odf_body.read_bin_stream(fp_bin_odf)
 				# Check if record size is correct (42 bytes)
 				if not (odf_body.get_size() == self.record_size):
-					raise ODFException("Failed Header Integrity Test.")
-				if odf_body.get_recno() == 0:
-					continue
-				self.dedup(d_dedup_dict, odf_body)
+					raise ODFException("Failed ODF Record Integrity Test.")
+				# Skip null records.
 				recno = odf_body.get_recno()
-				self.d_recno_index[recno] = odf_body
-				#log.debug(odf_body.get_field('ODF_RECNO'))
+				if recno == 0:
+					continue
+				self.d_recno_index[recno] = odf_body.to_dict()
 		except ODFEOF as err:
-			# EOF breaks the loop.
+			# EOF breaks the loop
+			log.debug("EOF detected")
 			pass
 		except:
 			raise
-		self.l_odf_body = self.get_dedup_objs(d_dedup_dict)	
+
 
 	def read_text_stream(self, fp_txt_odf):
 		""" Read and parse ODF from text stream. Also eliminate duplicate records.
@@ -495,66 +494,76 @@ class ODF(BinaryStruct):
 		# Parse headers
 		# To do: store odf records as a list of dicts in internally instead of 
 		# storing the encoder/decoder binarystruct objects
-		for odf_header in self.l_odf_headers:
-			if odf_header.is_in_text():
-				odf_header.read_text_stream(fp_txt_odf)
-				recno = odf_header.get_recno()
-				self.d_recno_index[recno] = odf_header
+		for i in range(len(self.ld_header_layout)):
+			d_header = self.ld_header_layout[i]
+			s_hdr_name = list(d_header.keys())[0]
+			d_hdr_param = list(d_header.values())[0]
+			# Skip over header records that are not in text file.
+			if not d_hdr_param['b_text']:
+				continue
+			#if not d_hdr_param['b_text'] and not self.b_fill_missing_headers:
+			#	continue
 
-		self.validate_headers()
+			odf_header = ODFHeader(**d_hdr_param)
+			odf_header.read_text_stream(fp_txt_odf)
+			
+			if not (odf_header.get_size() == self.record_size):
+				raise ODFException("Failed Header Integrity Test.")
 
-		# Parse body
-		#l_odf_body = []
-		d_dedup_dict = {}
+			recno = odf_header.get_recno()
+			
+			# check if the header record we read was stored.
+			if recno == 0:
+				continue
+
+			self.d_recno_index[recno] = odf_header.to_dict()
+
 		try:
+			# Parse body
 			while True:
 				odf_body = ODFBody()
 				odf_body.read_text_stream(fp_txt_odf)
-				#l_odf_body.append(odf_body)
-				self.dedup(d_dedup_dict, odf_body)
+				# Check if record size is correct (42 bytes)
+				if not (odf_body.get_size() == self.record_size):
+					raise ODFException("Failed ODF Record Integrity Test.")
+				# Skip null records.
 				recno = odf_body.get_recno()
-				self.d_recno_index[recno] = odf_body
+				if recno == 0:
+					log.debug("Null record in text file")
+					raise ODFException("Null record in text file")
+				self.d_recno_index[recno] = odf_body.to_dict()
 		except ODFEOF as err:
+			# EOF breaks the loop
 			pass
 		except:
 			raise
 
-		self.l_odf_body = self.get_dedup_objs(d_dedup_dict)	
-
-
 	def to_bin(self):
 		""" Pack this ODF into its binary format.
 		"""
-
-		l_odf_objs = []
-		buf = None
-		last_header_recno = 0
-		# First hash all headers into the dup-detect dict
-		for odf_header in self.l_odf_headers:
-			if buf is None:
-				buf = odf_header.to_bin()
-			else:
-				buf = buf + odf_header.to_bin()
-			last_header_recno = odf_header.get_recno()
-			#self.dup_detect_bin(d_dup_dict, odf_header)
-
-		# First hash all records into the dup-detect dict
-		first_recno = last_header_recno + 1
-		last_recno = self.l_odf_body[-1].get_recno()
-		odf_index = 0
 		
-		null_odf_body = ODFBody()
+		buf = b''
+		null_odf_rec = ODFBody()
+		l_recnos = sorted(list(self.d_recno_index.keys()))
+		final_recno = l_recnos[-1]
+		expected_buf_len = final_recno * self.record_size
+		for current_recno in range(1, final_recno+1):
 
-		# Store each record at byte location ((ODF_RECNO-1) * 42)+1
-		# Store missing records as null entries.
-		for recno in range(first_recno, last_recno+1):
-			current_valid_recno = self.l_odf_body[odf_index].get_recno()
-
-			if recno == current_valid_recno:
-				buf = buf + self.l_odf_body[odf_index].to_bin()
-				odf_index += 1
+			if current_recno in self.d_recno_index:
+				d_odf_rec = self.d_recno_index[current_recno]
+				if self.is_header_recno(current_recno):
+					d_hdr_param = list(self.ld_header_layout[current_recno-1].values())[0]
+					hdr_value = d_odf_rec['ODF_OPEN']
+					odf_header = ODFHeader(value=hdr_value, **d_hdr_param)
+					buf = buf + odf_header.to_bin()
+				else:
+					odf_body = ODFBody(d_fields=d_odf_rec)
+					buf = buf + odf_body.to_bin()
 			else:
-				buf = buf + null_odf_body.to_bin()
+				buf = buf + null_odf_rec.to_bin()
+
+		if not len(buf) == expected_buf_len:
+			raise ODFException("Error encoding Odf to binary")
 
 		return buf
 
@@ -564,16 +573,24 @@ class ODF(BinaryStruct):
 		fp_odf_bin.write(buf)
 		fp_odf_bin.close()
 
+	def is_header_recno(self, recno):
+		return (recno <= len(self.ld_header_layout))
+
 	def to_dict(self, s_odf_basename):
 		""" Create a list of dicts to write to DD. Does deduplication along the fly.
 		"""
 		ld_odf_recs = []
+		l_recnos = sorted(list(self.d_recno_index.keys()))
 
-		for odf_header in self.l_odf_headers:
-			ld_odf_recs.append(odf_header.to_dict(s_odf_basename))
-
-		for odf_body in self.l_odf_body:
-			ld_odf_recs.append(odf_body.to_dict(s_odf_basename))
+		for recno in l_recnos:
+			d_odf_rec = self.d_recno_index[recno]
+			if self.is_header_recno(recno):
+				hdr_value = list(d_odf_rec.values())[1]
+				d_hdr_param = list(self.ld_header_layout[recno].values())[0]
+				odf_header = ODFHeader(value=hdr_value, **d_hdr_param)
+				d_odf_rec = odf_header.to_dict()
+			d_odf_rec['ODF_NAME'] = s_odf_basename
+			ld_odf_recs.append(d_odf_rec)
 
 		return ld_odf_recs
 
@@ -581,17 +598,29 @@ class ODF(BinaryStruct):
 		""" Return a text representation of the ODF.
 		"""
 		buf = ""
-
-		for odf_header in self.l_odf_headers:
-			buf = buf + str(odf_header)
-
-		for odf_body in self.l_odf_body:
-			buf = buf + str(odf_body)
-
+		l_recnos = sorted(list(self.d_recno_index.keys()))
+		for recno in l_recnos:
+			d_odf_rec = self.d_recno_index[recno]
+			if self.is_header_recno(recno):
+				hdr_value = list(d_odf_rec.values())[1]
+				s_hdr = "%d\n" % int(hdr_value)
+				buf = buf + s_hdr
+			else:
+				s_body = "%d, %s, %s, %s, %s, %d\n" % (
+						int(d_odf_rec['ODF_RECNO']),
+						str(d_odf_rec['ODF_OPEN']),
+						str(d_odf_rec['ODF_HIGH']),
+						str(d_odf_rec['ODF_LOW']),
+						str(d_odf_rec['ODF_CLOSE']),
+						int(d_odf_rec['ODF_VOLUME']),
+					)
+				buf = buf + s_body
 		return buf
 
+
 	def get_highest_recno(self):
-		return self.l_odf_body[-1].get_recno()
+		l_recnos = sorted(list(self.d_recno_index.keys()))
+		return l_recnos[-1]
 
 
 	def recno_exists(self, recno):
@@ -617,10 +646,10 @@ class ODF(BinaryStruct):
 			
 			odf_h = self.d_recno_index[h]
 
-			odf_h_open = odf_h.get_field("ODF_OPEN")
-			odf_h_high = odf_h.get_field("ODF_HIGH")
-			odf_h_low = odf_h.get_field("ODF_LOW")
-			odf_h_close = odf_h.get_field("ODF_CLOSE")
+			odf_h_open = odf_h["ODF_OPEN"]
+			odf_h_high = odf_h["ODF_HIGH"]
+			odf_h_low = odf_h["ODF_LOW"]
+			odf_h_close = odf_h["ODF_CLOSE"]
 			
 			if odf_h_open == odf_h_high and odf_h_high == odf_h_low and \
 				odf_h_low == odf_h_close:
@@ -642,21 +671,13 @@ class ODF(BinaryStruct):
 		return l_fifo_arr
 
 	def get_header_value(self, header_storloc):
-		
 		if header_storloc not in self.d_recno_index:
 			return dc.Decimal('0')
+		log.debug("Fetching header %d" % int(header_storloc))
+		d_header_rec = self.d_recno_index[int(header_storloc)]
+		return d_header_rec['ODF_OPEN']
 
-		odf_header_rec = self.d_recno_index[header_storloc]
-		
-		return odf_header_rec.get_header_value()
-
-	def get_field(recno, s_field_name):
-
-		odf_record = self.d_recno_index[recno]
-
-		return odf_record.get_field(s_field_name)
-
-	def add_missing_record(recno, dc_open, dc_high, dc_low, dc_close, dc_volume=dc.Decimal('0')):
+	def add_missing_record(self, recno, dc_open, dc_high, dc_low, dc_close, dc_volume=dc.Decimal('0')):
 
 		odf_record = ODFBody(d_fields={
 				'ODF_RECNO' : recno,
@@ -667,23 +688,21 @@ class ODF(BinaryStruct):
 				'OPEN_VOLUME' : dc_volume,
 			})
 
-		self.d_recno_index[recno] = odf_record
-		self.l_odf_body.append(odf_record)
+		if recno in self.d_recno_index:
+			raise ODFException("Record at %d already exists. Cannot fill missing." % recno)
+		self.d_recno_index[recno] = odf_record.to_dict()
+		#self.l_odf_body.append(odf_record)
 
-	def add_missing_header(header_storloc, dc_header_value):
-		d_header_layout = self.ld_header_layout[header_storloc]
+	def add_missing_header(self, header_storloc, dc_header_value):
+		d_header_layout = self.ld_header_layout[int(header_storloc)-1]
 		d_header_kwargs = list(d_header_layout.values())[0]
-		s_header_name = list(d_header_layout.keys())[0]
-		s_header_storloc = "_".join(s_header_name, "STORLOC")
-		d_fields = {
-					s_header_storloc : header_storloc,
-					s_header_name : dc_header_value,
-					}
+		#s_header_name = list(d_header_layout.keys())[0]
+		#s_header_storloc = "_".join([s_header_name, "STORLOC"])
+		
+		odf_hdr_rec = ODFHeader(value=dc_header_value, **d_header_kwargs)
 
-		odf_hdr_rec = ODFHeader(d_fields=d_fields, **d_header_kwargs)
-
-		self.l_odf_headers.append(odf_hdr_rec)
-		self.d_recno_index[header_storloc] = odf_hdr_rec
+		#self.l_odf_headers.append(odf_hdr_rec)
+		self.d_recno_index[int(header_storloc)] = odf_hdr_rec.to_dict()
 
 
 	""" These are actually underlying storage-mechanism dependent, and shoul;d BE
@@ -702,8 +721,9 @@ class ODF(BinaryStruct):
 
 	def find_highest_recno(self, trading_start_recno, trading_recs_perday):
 		# highest record no. in the odf
-		r = self.l_odf_body[-1].get_recno()
-
+		#r = self.l_odf_body[-1].get_recno()
+		l_recnos = sorted(list(self.d_recno_index.keys()))
+		r = l_recnos[-1]
 		while self.is_recno_out_of_limits(r, trading_start_recno, trading_recs_perday):
 			r -= 1
 
@@ -713,11 +733,11 @@ class ODF(BinaryStruct):
 		r = trading_start_recno
 		dc_odf_open = dc.Decimal('0')
 		while True:
-			if r not in d_recno_index:
+			if r not in self.d_recno_index:
 				return dc.Decimal('0')
 			odf_rec = self.d_recno_index[r]
 
-			dc_odf_open = odf_rec.get_field('ODF_OPEN')
+			dc_odf_open = odf_rec['ODF_OPEN']
 
 			if dc_odf_open > 0:
 				break

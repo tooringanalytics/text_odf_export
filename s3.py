@@ -88,7 +88,7 @@ class S3Store(object):
 class LocalS3Store(object):
 
 	def __init__(self, s_local_s3_data_root):
-		self.s_root_dir = s_local_s3_data_root
+		self.s_root_dir = os.path.abspath(s_local_s3_data_root)
 		super(LocalS3Store, self).__init__()
 
 	def get_odf_path(self, s_exchange, s_symbol, s_odf_basename):
@@ -127,9 +127,11 @@ class LocalS3Store(object):
 		if not os.path.exists(s_fce_tmp_filename):
 			s_fce_s3_filename = os.sep.join([self.s_root_dir, fce_pathspec.s_fce_s3_prefix, "18", 
 												str(fce_pathspec.odf_jsunnoon), s_fce_header_filename])
-			self.download_fce_file("", s_fce_s3_filename, s_fce_tmp_filename)
+			if os.path.exists(s_fce_s3_filename):
+				self.download_fce_file("", s_fce_s3_filename, s_fce_tmp_filename)
+			else:
+				return None
 		
-
 		fp_bin = open(s_fce_tmp_filename, "rb")
 
 		fce_obj = FCE()

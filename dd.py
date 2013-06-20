@@ -456,7 +456,7 @@ class DDStore(object):
 class LocalDDStore(object):
 
 	def __init__(self, s_local_dd_data_root):
-		self.s_root_dir = s_local_dd_data_root
+		self.s_root_dir = os.path.abspath(s_local_dd_data_root)
 
 	def list_exchanges(self):
 		s_root_glob = os.sep.join([self.s_root_dir, '*'])
@@ -466,10 +466,15 @@ class LocalDDStore(object):
 	def get_exchange_basename(self, s_exchange):
 		return os.path.basename(s_exchange)
 
-	def list_odfs(self, s_exchange):
-		s_exchange_glob = os.sep.join([s_exchange, '*.rs3'])
+	def list_txt_odfs(self, s_exchange):
+		s_exchange_glob = os.sep.join([s_exchange, '*.rs4'])
 		ls_rs4s = glob.glob(s_exchange_glob)
 		return ls_rs4s
+
+	def list_odfs(self, s_exchange):
+		s_exchange_glob = os.sep.join([s_exchange, '*.rs3'])
+		ls_rs3s = glob.glob(s_exchange_glob)
+		return ls_rs3s
 
 	def get_odf_basename(self, s_odf_name):
 		s_odf_basename = os.path.basename(s_odf_name)

@@ -194,9 +194,11 @@ class BinaryStruct(object):
 		@param fp_bin: Binary byte stream
 		"""
 		read_size = self.get_size()
+		#log.debug("read_size=%d" % read_size)
 		s_buf = fp_bin.read(read_size)
 		if s_buf is None or len(s_buf) == 0:
 			#print "eof encountered"
+			#log.debug(fp_bin.tell())
 			raise ODFEOF()
 		return self.parse_bin_buf(s_buf)
 
@@ -245,6 +247,8 @@ class BinaryStruct(object):
 		ls_fields = self.get_field_names()
 
 		self.d_fields = dict(zip(ls_fields, l_values))
+		
+		#log.debug(self.d_fields)
 
 		return self.d_fields
 
