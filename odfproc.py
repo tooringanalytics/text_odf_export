@@ -98,7 +98,7 @@ class ODFProcessor:
 	def load_odf_bin(self, s_bin_src):
 		odf = ODF()
 
-		fp_txt_odf = open(s_bin_src, "rb")
+		fp_bin_odf = open(s_bin_src, "rb")
 
 		odf.read_bin_stream(fp_bin_odf)
 
@@ -152,14 +152,12 @@ class ODFProcessor:
 			s_exchange_glob = os.sep.join([s_exchange, '*.rs3'])
 			ls_rs3s = glob.glob(s_exchange_glob)
 
-			for s_rs3 in ls_rs4s:
+			for s_rs3 in ls_rs3s:
 				fn_do(s_exchange, s_rs3, b_show)
 
 	def for_all_odfs_bin_dd(self, config, fn_do, b_show=False):
-		s_root_glob = os.sep.join([s_root_dir, '*'])
-		ls_exchanges = glob.glob(s_root_glob)
 
-		ls_exchanges = self.ddstore.list_tables()
+		ls_exchanges = self.ddstore.list_exchanges()
 
 		for s_exchange in ls_exchanges:
 			ls_odf_names = self.ddstore.list_odfs(s_exchange)

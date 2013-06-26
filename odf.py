@@ -430,7 +430,9 @@ class ODF(BinaryStruct):
 
 
 	def get_field(self, recno, s_field_name):
-		odf_rec = self.d_recno_index[recno]
+		if recno not in self.d_recno_index:
+			return dc.Decimal('0')
+		odf_rec = self.d_recno_index[int(recno)]
 		return odf_rec[s_field_name]
 
 	def read_bin_stream(self, fp_bin_odf):
@@ -554,10 +556,18 @@ class ODF(BinaryStruct):
 				if self.is_header_recno(current_recno):
 					d_hdr_param = list(self.ld_header_layout[current_recno-1].values())[0]
 					hdr_value = d_odf_rec['ODF_OPEN']
-					odf_header = ODFHeader(value=hdr_value, **d_hdr_param)
+					odf_header = ODFHeader(value=float(hdr_value), **d_hdr_param)
 					buf = buf + odf_header.to_bin()
 				else:
-					odf_body = ODFBody(d_fields=d_odf_rec)
+					d_bin_rec = {}
+					d_bin_rec['ODF_RECNO'] = int(d_odf_rec['ODF_RECNO'])
+					d_bin_rec['ODF_OPEN'] = float(d_odf_rec['ODF_OPEN'])
+					d_bin_rec['ODF_HIGH'] = float(d_odf_rec['ODF_HIGH'])
+					d_bin_rec['ODF_LOW'] = float(d_odf_rec['ODF_LOW'])
+					d_bin_rec['ODF_CLOSE'] = float(d_odf_rec['ODF_CLOSE'])
+					d_bin_rec['ODF_VOLUME'] = float(d_odf_rec['ODF_VOLUME'])
+
+					odf_body = ODFBody(d_fields=d_bin_rec)
 					buf = buf + odf_body.to_bin()
 			else:
 				buf = buf + null_odf_rec.to_bin()
@@ -673,24 +683,39 @@ class ODF(BinaryStruct):
 	def get_header_value(self, header_storloc):
 		if header_storloc not in self.d_recno_index:
 			return dc.Decimal('0')
-		log.debug("Fetching header %d" % int(header_storloc))
+		#log.debug("Fetching header %d" % int(header_storloc))
 		d_header_rec = self.d_recno_index[int(header_storloc)]
 		return d_header_rec['ODF_OPEN']
 
+	def set_header_value(self, header_storloc, value):
+		self.d_recno_index[int(header_storloc)]['ODF_OPEN'] = value
+
+	def get_value(self, recno, s_field_name):
+		if int(recno) in self.d_recno_index:
+			d_rec = self.d_recno_index[int(recno)]
+			try:
+				return d_rec[s_field_name]
+			except:
+				log.info(d_rec)
+				raise
+		else:
+			return dc.Decimal("0")
+
 	def add_missing_record(self, recno, dc_open, dc_high, dc_low, dc_close, dc_volume=dc.Decimal('0')):
 
-		odf_record = ODFBody(d_fields={
+		d_rec = {
 				'ODF_RECNO' : recno,
 				'ODF_OPEN' : dc_open,
-				'OPEN_HIGH' : dc_high,
-				'OPEN_LOW' : dc_low,
-				'OPEN_CLOSE' : dc_close,
-				'OPEN_VOLUME' : dc_volume,
-			})
+				'ODF_HIGH' : dc_high,
+				'ODF_LOW' : dc_low,
+				'ODF_CLOSE' : dc_close,
+				'ODF_VOLUME' : dc_volume,
+			}
 
 		if recno in self.d_recno_index:
-			raise ODFException("Record at %d already exists. Cannot fill missing." % recno)
-		self.d_recno_index[recno] = odf_record.to_dict()
+			log.warning("Record at %d already exists. Overwriting." % recno)
+		self.d_recno_index[recno] = d_rec
+
 		#self.l_odf_body.append(odf_record)
 
 	def add_missing_header(self, header_storloc, dc_header_value):
@@ -705,10 +730,18 @@ class ODF(BinaryStruct):
 		self.d_recno_index[int(header_storloc)] = odf_hdr_rec.to_dict()
 
 
-	""" These are actually underlying storage-mechanism dependent, and shoul;d BE
+	""" These are actually underlying storage-mechanism dependent, and should be
 		made proxy methods to call storage-mechanism object methods
 	"""
 
+	def get_recnos_within_limits(self, config):
+		
+		for recno in range(int(config.last_fced_recno), int(config.highest_recno) + 1):
+			if self.is_recno_out_of_limits(recno, config.trading_start_recno, config.trading_recs_perday):
+				continue
+			yield recno
+		
+			
 	def is_recno_out_of_limits(self, recno, trading_start_recno, trading_recs_perday):
 		n = recno
 
@@ -723,10 +756,36 @@ class ODF(BinaryStruct):
 		# highest record no. in the odf
 		#r = self.l_odf_body[-1].get_recno()
 		l_recnos = sorted(list(self.d_recno_index.keys()))
+		
+		lowest_recno = 0
+		for recno in l_recnos:
+			if self.is_header_recno(recno):
+				continue
+			lowest_recno = recno
+			break
 		r = l_recnos[-1]
-		while self.is_recno_out_of_limits(r, trading_start_recno, trading_recs_perday):
-			r -= 1
 
+		log.debug("Finding highest_recno starting from: %d with (%d, %d)" % (r, trading_start_recno, trading_recs_perday))
+		log.debug("lowest_recno=%d" % lowest_recno)
+
+		while True:
+			if self.is_recno_out_of_limits(r, trading_start_recno, trading_recs_perday):
+				if r < lowest_recno:
+					break
+			else:
+				if r in self.d_recno_index:
+					break
+				elif r < lowest_recno:
+					break
+			r = r - 1
+
+		if r < lowest_recno:
+			r = lowest_recno
+
+		if not r in self.d_recno_index:
+			raise ODFException("Invalid recno %d" % r)
+
+		log.debug("highest_recno=%d" % r)
 		return r
 		
 	def find_first_non_zero_open(self, trading_start_recno):
@@ -753,6 +812,25 @@ class ODF(BinaryStruct):
 			highest_recno_close = prev_fce_obj.get_highest_recno_close() / ohlc_divider
 
 		return highest_recno_close
+
+	def get_volume_tick(self):
+
+		vol_tick = dc.Decimal('1.0')
+		prev_vol = dc.Decimal('0')
+		l_recnos = sorted(list(self.d_recno_index.keys()))
+		max_recno = l_recnos[-1]
+
+		for recno in l_recnos:
+			if self.is_header_recno(recno):
+				continue
+			vol_delta = self.d_recno_index[recno]['ODF_VOLUME'] - prev_vol
+
+			if vol_delta > 0 and vol_delta < vol_tick:
+				vol_tick = vol_delta
+		# Avoid non-zero volume tick.
+		if vol_tick == 0:
+			vol_tick = 1
+		return vol_tick
 
 
 def open_odf_bin(s_odf_bin):

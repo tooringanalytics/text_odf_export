@@ -34,6 +34,13 @@ import decimal as dc
 import logging
 log = logging.getLogger(__name__)
 
+from itertools import cycle
+
+def xor_crypt(data, key):
+	# For python 2, should use itertools.izip instead of zip
+	# zip returns a list in python2, but returns iterator in py3.
+	return b''.join([st.pack('B', x^y) for (x,y) in zip(data, cycle(key))])
+
 class BinaryStruct(object):
 	""" Base class for all packed binary structures. e.g. ODF Headers, data, FIFO headers etc.
 	"""
@@ -66,6 +73,10 @@ class BinaryStruct(object):
 
 	""" Padding specifiers for 24, 28, 32, 36 bytes etc.
 	"""
+	_ld_append_6 = [
+		{'pad1' : 'L'},
+		{'pad2' : 'H'},
+	]
 	_ld_append_16 = [
 		{'pad1' : 'd'},
 		{'pad2' : 'd'},
@@ -108,7 +119,9 @@ class BinaryStruct(object):
 
 		# Append the padding specifier to self.ld_fields
 		if padding is not None:
-			if padding == 16:
+			if padding == 6:
+				self.ld_fields = self.ld_fields + self._ld_append_6
+			elif padding == 16:
 				self.ld_fields = self.ld_fields + self._ld_append_16
 			elif padding == 24:
 				self.ld_fields = self.ld_fields + self._ld_append_24
@@ -189,7 +202,7 @@ class BinaryStruct(object):
 		l_values = list(map(lambda x: dc.Decimal(str(x)) if type(x) is float else x, l_values))
 		return l_values
 
-	def parse_bin_stream(self, fp_bin):
+	def parse_bin_stream(self, fp_bin, key=None):
 		""" Read self.get_size() bytes from the given stream, and parse values.
 		@param fp_bin: Binary byte stream
 		"""
@@ -200,15 +213,17 @@ class BinaryStruct(object):
 			#print "eof encountered"
 			#log.debug(fp_bin.tell())
 			raise ODFEOF()
+		if key is not None:
+			s_buf = xor_crypt(s_buf, key)
 		return self.parse_bin_buf(s_buf)
 
-	def parse_bin_stream_at(self, fp_bin, offset=0):
+	def parse_bin_stream_at(self, fp_bin, offset=0, key=None):
 		""" Seek to a given offset in the byte stream, and parse values.
 		@param fp_bin: Binary byte stream.
 		@param offset: Relative offset to star read. (default: 0)
 		"""
 		fp_bin.fseek(offset)
-		return self.parse_bin_stream(fp_bin)
+		return self.parse_bin_stream(fp_bin, key)
 	
 	def parse_txt_buf(self, s_buf):
 		""" Parse values froma  text buffer.
@@ -238,11 +253,11 @@ class BinaryStruct(object):
 	""" 'Public' interface.
 	"""
 
-	def read_bin_stream(self, fp_bin):
+	def read_bin_stream(self, fp_bin, key=None):
 		""" Read & parse a binary stream. Returns a dictionary object with field names & vals.
 		@param fp_bin: Binary byte stream.
 		"""
-		l_values = self.parse_bin_stream(fp_bin)
+		l_values = self.parse_bin_stream(fp_bin, key)
 		
 		ls_fields = self.get_field_names()
 
@@ -252,12 +267,12 @@ class BinaryStruct(object):
 
 		return self.d_fields
 
-	def read_bin_stream_at(self, fp_bin, offset=0):
+	def read_bin_stream_at(self, fp_bin, offset=0, key=None):
 		""" Read & parse a binary stream starting from the given relative offset.
 		@param fp_bin: Binary byte stream.
 		@param offset: Relative offset (default: 0)
 		"""
-		l_values = self.parse_bin_stream_at(fp_bin, offset)
+		l_values = self.parse_bin_stream_at(fp_bin, offset, key)
 		
 		ls_fields = self.get_field_names()
 
@@ -290,7 +305,7 @@ class BinaryStruct(object):
 
 		return self.d_fields
 
-	def to_bin(self):
+	def to_bin(self, key=None):
 		""" Pack all values into a binary buffer, and return it.
 		"""
 		l_values = list([])
@@ -304,7 +319,17 @@ class BinaryStruct(object):
 		#	print(type(val))
 		#print(self.s_struct_fmt)
 		#print(*l_values)
-		return st.pack(self.s_struct_fmt, *l_values)
+		buf = b''
+		try:
+			buf = st.pack(self.s_struct_fmt, *l_values)
+		except:
+			for value in l_values:
+				log.debug(type(value))
+			raise
+		# XOR encrypt if a key is given
+		if key is not None:
+			buf = xor_crypt(buf, key)
+		return buf
 
 	def to_text(self):
 		""" Return a text representation of this binary struct.

@@ -26,13 +26,55 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 '''
 
-
+from odfexcept import *
 from binary import BinaryStruct
+import decimal as dc
+import re
 
 import logging
 log = logging.getLogger(__name__)
 
 class ChunkHeader(BinaryStruct):
+	ld_fields = [
+			# {'<field_name>' : 'x/c/...' },
+			{'LOWEST_LOW' : 'd'},
+			{'VOLUME_TICK' : 'H'},
+			{'CHUNK_OPEN_RECNO' : 'H'},
+			{'CHUNK_CLOSE_RECNO' : 'H'},
+		]
+
+	def __init__(self, *kargs, **kwargs):
+		super(ChunkHeader, self).__init__(*kargs, **kwargs)
+
+	def __repr__(self):
+		f_lowest_low = self.get_field('LOWEST_LOW')
+		volume_tick = self.get_field('VOLUME_TICK')
+		chunk_open_recno = self.get_field('CHUNK_OPEN_RECNO')
+		chunk_close_recno = self.get_field('CHUNK_CLOSE_RECNO')
+
+		buf = "%f, %d, %d, %d" % (f_lowest_low, volume_tick, chunk_open_recno, chunk_close_recno)
+
+		return buf
+
+	def to_dict(self):
+		""" Return dictionary representation 
+		"""
+		f_lowest_low = self.get_field("LOWEST_LOW")
+		volume_tick = self.get_field("VOLUME_TICK")
+		chunk_open_recno = self.get_field("CHUNK_OPEN_RECNO")
+		chunk_close_recno = self.get_field("CHUNK_CLOSE_RECNO")
+		
+		d_chunk_rec = {
+					'LOWEST_LOW': f_lowest_low,
+					'VOLUME_TICK' : volume_tick,
+					'CHUNK_OPEN_RECNO' : chunk_open_recno,
+					'CHUNK_CLOSE_RECNO' : chunk_close_recno,
+					}
+
+		return d_chunk_rec
+
+class ShortChunkHeader(BinaryStruct):
+	
 	ld_fields = [
 			# {'<field_name>' : 'x/c/...' },
 			{'LOWEST_LOW' : 'L'},
@@ -42,8 +84,35 @@ class ChunkHeader(BinaryStruct):
 		]
 
 	def __init__(self, *kargs, **kwargs):
-		super(ChunkHeader, self).__init__(*kargs, **kwargs)
+		super(ShortChunkHeader, self).__init__(*kargs, **kwargs)
 
+	def __repr__(self):
+		lowest_low = self.get_field('LOWEST_LOW')
+		volume_tick = self.get_field('VOLUME_TICK')
+		chunk_open_recno = self.get_field('CHUNK_OPEN_RECNO')
+		chunk_close_recno = self.get_field('CHUNK_CLOSE_RECNO')
+
+		buf = "%d, %d, %d, %d" % (lowest_low, volume_tick, chunk_open_recno, chunk_close_recno)
+
+		return buf
+
+	def to_dict(self):
+		""" Return dictionary representation 
+		"""
+		lowest_low = self.get_field("LOWEST_LOW")
+		volume_tick = self.get_field("VOLUME_TICK")
+		chunk_open_recno = self.get_field("CHUNK_OPEN_RECNO")
+		chunk_close_recno = self.get_field("CHUNK_CLOSE_RECNO")
+		
+		d_chunk_rec = {
+					'LOWEST_LOW': lowest_low,
+					'VOLUME_TICK' : volume_tick,
+					'CHUNK_OPEN_RECNO' : chunk_open_recno,
+					'CHUNK_CLOSE_RECNO' : chunk_close_recno,
+					}
+
+		return d_chunk_rec
+	
 class Chunk(BinaryStruct):
 
 	ld_fields = [
@@ -57,22 +126,23 @@ class Chunk(BinaryStruct):
 
 	def __init__(self, *kargs, **kwargs):
 		super(Chunk, self).__init__(*kargs, **kwargs)
-
+		
+		
 	def to_dict(self):
 		""" Return dictionary representation 
 		"""
 		f_open = self.get_field("OPEN")
-		f_high = self.get_field("IGH")
+		f_high = self.get_field("HIGH")
 		f_low = self.get_field("LOW")
 		f_close = self.get_field("CLOSE")
 		f_volume = self.get_field("VOLUME")
 
 		d_chunk_rec = {
-					'OPEN': dc.Decimal(str(f_open)),
-					'HIGH' : dc.Decimal(str(f_high)),
-					'LOW' : dc.Decimal(str(f_low)),
-					'CLOSE' : dc.Decimal(str(f_close)),
-					'VOLUME' : dc.Decimal(str(f_volume)),
+					'OPEN': f_open,
+					'HIGH' : f_high,
+					'LOW' : f_low,
+					'CLOSE' : f_close,
+					'VOLUME' : f_volume,
 					}
 
 		return d_chunk_rec
@@ -109,15 +179,28 @@ class ShortChunk(BinaryStruct):
 
 		return d_chunk_rec
 
+	def __repr__(self):
+		h_open = self.get_field("OPEN")
+		h_high = self.get_field("HIGH")
+		h_low = self.get_field("LOW")
+		h_close = self.get_field("CLOSE")
+		h_volume = self.get_field("VOLUME")
+
+		buf = "%d, %d, %d, %d, %d" % (h_open, h_high, h_low, h_close, h_volume)
+
+		return buf
+
 class ChunkArray(object):
 
-
-	def __init__(self, s_chunk_file_name=None, chunk_size=0):
+	def __init__(self, s_chunk_file_name=None, chunk_size=0, debug_id=0):
 		self.s_chunk_file_name = s_chunk_file_name
 		self.d_chunk_arr = {}
-		self.long_chunk_szie = 40
+		self.chunk_size= chunk_size
+		self.long_chunk_size = 40
 		self.short_chunk_size = 10
-
+		self.s_file = None
+		self.debug_id = debug_id
+	
 	def get_name(self):
 		return self.s_chunk_file_name
 
@@ -127,15 +210,28 @@ class ChunkArray(object):
 		self.d_chunk_arr[recno][s_field_name] = value
 
 	def get_field(self, recno, s_field_name):
-		self.d_chunk_arr[recno][s_field_name]
+		try:
+			return self.d_chunk_arr[recno][s_field_name]
+		except:
+			log.error(self.get_name())
+			log.error(self.s_file)
+			log.error(self.debug_id)
+			log.error(recno)
+			log.error(s_field_name)
+			#log.error(self.d_chunk_arr[recno])
+			#log.debug(self.to_csv())
+			raise
 
 	def get_header_field(self, s_hdr_field_name):
-		self.d_chunk_arr[self.chunk_size+1][s_hdr_field_name]
+		val = self.d_chunk_arr[self.chunk_size+1][s_hdr_field_name]
+		#log.debug(val)
+		return val
 
 	def set_header_field(self, s_hdr_field_name, value):
 		self.d_chunk_arr[self.chunk_size+1][s_hdr_field_name] = value
 
 	def set_header(self, d_chunk_header):
+		#log.debug(d_chunk_header)
 		self.d_chunk_arr[self.chunk_size+1] = d_chunk_header
 
 	def highest_volume(self):
@@ -157,57 +253,104 @@ class ChunkArray(object):
 			lowest_low = 0
 		return lowest_low
 
-	def to_bin_short(self):
+	def to_bin_short(self, key=None):
 		buf = b''
-
+		null_chunk_rec = ShortChunk()
 		for recno in range(1, self.chunk_size+1):
-			d_fields = self.d_chunk_arr[recno]
-			chunk_rec = ShortChunk(d_fields=d_fields)
-			buf += chunk_rec.to_bin()
+			if recno in self.d_chunk_arr:
+				d_fields = self.d_chunk_arr[recno]
+				chunk_rec = ShortChunk(d_fields=d_fields)
+				try:
+					buf = buf + chunk_rec.to_bin(key)
+				except:
+					log.error(chunk_rec.d_fields)
+					log.error(self.get_name())
+					log.error(self.to_csv())
+					raise
+			else:
+				buf = buf + null_chunk_rec.to_bin(key)
+		d_hdr_fields = self.d_chunk_arr[self.chunk_size + 1]
+		chunk_hdr_rec = ShortChunkHeader(d_fields=d_hdr_fields)
+		buf += chunk_hdr_rec.to_bin(key)
 
-		d_hdr_fields = self.d_chunk_arr[recno + 1]
+		return buf
+	
+	def to_csv(self):
+		buf = ''
+		#log.debug("Chunk size: %d records" % self.length())
+		for recno in range(1, self.chunk_size+1):
+			if recno in self.d_chunk_arr:
+				d_fields = self.d_chunk_arr[recno]
+				chunk_rec = ShortChunk(d_fields=d_fields)
+				buf = buf + str(chunk_rec) + '\n'
+
+		d_hdr_fields = self.d_chunk_arr[self.chunk_size + 1]
+		chunk_hdr_rec = ShortChunkHeader(d_fields=d_hdr_fields)
+		buf += str(chunk_hdr_rec) + '\n'
+		return buf
+	
+	def save_csv(self, s_chunk_csv_file_name):
+		#log.debug("saving chunk to csv: %s" % s_chunk_csv_file_name)
+		fp = open(s_chunk_csv_file_name, "w")
+		buf = self.to_csv()
+		#log.debug(buf)
+		fp.write(buf)
+		fp.close()
+
+	def to_bin_long(self, key=None):
+
+		buf = b''
+		null_chunk_rec = Chunk()
+		for recno in range(1, self.chunk_size+1):
+			if recno in self.d_chunk_arr:
+				d_fields = self.d_chunk_arr[recno]
+				chunk_rec = Chunk(d_fields=d_fields)
+				buf += chunk_rec.to_bin(key)
+			else:
+				buf = buf + null_chunk_rec.to_bin(key)
+
+		d_hdr_fields = self.d_chunk_arr[self.chunk_size + 1]
 		chunk_hdr_rec = ChunkHeader(d_fields=d_hdr_fields)
-		buf += chunk_hdr_rec.to_bin()
+		buf += chunk_hdr_rec.to_bin(key)
 
 		return buf
 
-	def to_bin_long(self):
-
-		buf = b''
-
-		for recno in range(1, self.chunk_size+1):
-			d_fields = self.d_chunk_arr[recno]
-			chunk_rec = Chunk(d_fields=d_fields)
-			buf += chunk_rec.to_bin()
-
-		d_hdr_fields = self.d_chunk_arr[recno + 1]
-		chunk_hdr_rec = ChunkHeader(d_fields=d_hdr_fields)
-		buf += chunk_hdr_rec.to_bin()
-
-		return buf
-
-	def read_bin_long(self, fp_bin):
+	def read_bin_long(self, fp_bin, key=None):
 		chunk_size = self.chunk_size
 		for i in range(chunk_size):
 			chunk = Chunk()
-			chunk.read_bin_stream(fp_bin)
+			chunk.read_bin_stream(fp_bin, key)
 			# Check if record size is correct (40 bytes)
 			if not (chunk.get_size() == self.long_chunk_size):
 				raise ODFException("Failed Chunk Integrity Test.")
 
 			self.d_chunk_arr[i+1] = chunk.to_dict()
+		chunk_hdr_rec = ChunkHeader()
+		chunk_hdr_rec.read_bin_stream(fp_bin, key)
+		self.d_chunk_arr[self.chunk_size+1] = chunk_hdr_rec.to_dict()	
+		
+		if 'VOLUME_TICK' not in self.d_chunk_arr[self.chunk_size+1]:
+			raise ODFException("Failed integrity test.")	
 
-	def read_bin_short(self, fp_bin):
+	def read_bin_short(self, fp_bin, key):
 		chunk_size = self.chunk_size
 		for i in range(chunk_size):
 			chunk = ShortChunk()
-			chunk.read_bin_stream(fp_bin)
+			chunk.read_bin_stream(fp_bin, key)
 			# Check if record size is correct (10 bytes)
 			if not (chunk.get_size() == self.short_chunk_size):
 				raise ODFException("Failed ShortChunk Integrity Test.")
 
 			self.d_chunk_arr[i+1] = chunk.to_dict()
 
+		chunk_hdr_rec = ShortChunkHeader()
+		chunk_hdr_rec.read_bin_stream(fp_bin, key)
+		self.d_chunk_arr[self.chunk_size+1] = chunk_hdr_rec.to_dict()		
+		if 'VOLUME_TICK' not in self.d_chunk_arr[self.chunk_size+1]:
+			raise ODFException("Failed integrity test.")	
+
+	def length(self):
+		return len(self.d_chunk_arr)
 
 class ChunkArrayList(object):
 
@@ -219,47 +362,52 @@ class ChunkArrayList(object):
 		self.d_chunk_array[chunk_array.get_name()] = chunk_array
 		self.l_chunk_list.append(chunk_array)
 
-	def get_chunk_array(self, s_chunk_file_name):
+	def get_chunk_arr(self, s_chunk_file_name):
 		if s_chunk_file_name in self.d_chunk_array:
 			return self.d_chunk_array[s_chunk_file_name]
 		return None
 
-	def get_chunk_array_at(self, index):
+	def get_chunk_arr_at(self, index):
 		return self.l_chunk_list[index]
 
 	def length(self):
 		return len(self.l_chunk_list)
 
-def read_short_chunk_array(self, s_chunk_file_name):
+def read_short_chunk_array(s_chunk_file_path, s_chunk_file_name, chunk_size, key=None):
 
-	fp_chunk = open(s_chunk_file_name, "rb")
+	#log.debug(s_chunk_file_name)
+	fp_chunk = open(s_chunk_file_path, "rb")
 
-	chunk_array = ChunkArray(s_chunk_file_name)
+	chunk_array = ChunkArray(s_chunk_file_name, chunk_size, debug_id=1)
 
-	chunk_array.read_bin_short(fp_chunk)
+	chunk_array.read_bin_short(fp_chunk, key)
 
 	fp_chunk.close()
-
+	
+	chunk_array.s_file = s_chunk_file_name
+	
 	return chunk_array
 
 def make_chunk_file_name(L_no, fce_jsunnoon, chunk_no, s_odf_basename):
 	
-	matchobj = re.match(r'^(.*)\_(\d+)$', s_odf_basename)
+	#log.debug(s_odf_basename)
+	matchobj = re.match(r'^(.*)\-(\d+)$', s_odf_basename)
 
 	s_prefix = matchobj.group(1)
 
-	s_suffix = ''.join(str(L_no), str(fce_jsunnoon), "%02d" % str(chunk_no))
+	s_suffix = ''.join([str(L_no), str(fce_jsunnoon), "%02d" % chunk_no])
 
-	s_chunk_file_name = '_'.join([s_prefix, s_suffix])
+	s_chunk_file_name = '-'.join([s_prefix, s_suffix])
 
-	s_chunk_file_name = '.'.join([s_chunk_file_name, 'rs3'])
+	s_chunk_file_name = '.'.join([s_chunk_file_name, 'fce'])
 
+	#log.debug("Generated chunk file name: %s" % s_chunk_file_name)
 	return s_chunk_file_name
 
 def get_components_from_chunk_name(s_chunk_name):
-
+	#log.debug(s_chunk_name)
 	# jsunnoon is 5-digit julian day no., chunk_no is zero-padded 2-digit integer
-	matchobj = re.match(r'^(.*)\_(\d+)(\d\d\d\d\d)(\d\d)\.rs3$', s_chunk_name)
+	matchobj = re.match(r'^(.*)\-(\d+)(\d\d\d\d\d)(\d\d)\.fce$', s_chunk_name)
 
 	L_no = int(matchobj.group(2))
 	fce_jsunnoon = int(matchobj.group(3))

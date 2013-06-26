@@ -30,6 +30,42 @@ import decimal as dc
 import logging
 log = logging.getLogger(__name__)
 
+from binascii import unhexlify
+
+def long_to_bytes(val, endianness='little'):
+	"""
+	Use :ref:`string formatting` and :func:`~binascii.unhexlify` to
+	convert ``val``, a :func:`long`, to a byte :func:`str`.
+
+	:param long val: The value to pack
+
+	:param str endianness: The endianness of the result. ``'big'`` for
+	big-endian, ``'little'`` for little-endian.
+
+	If you want byte- and word-ordering to differ, you're on your own.
+
+	Using :ref:`string formatting` lets us use Python's C innards.
+	"""
+
+	# one (1) hex digit per four (4) bits
+	width = val.bit_length()
+
+	# unhexlify wants an even multiple of eight (8) bits, but we don't
+	# want more digits than we need (hence the ternary-ish 'or')
+	width += 8 - ((width % 8) or 8)
+
+	# format width specifier: four (4) bits per hex digit
+	fmt = '%%0%dx' % (width // 4)
+
+	# prepend zero (0) to the width, to zero-pad the output
+	s = unhexlify(fmt % val)
+
+	if endianness == 'little':
+		# see http://stackoverflow.com/a/931095/309233
+		s = s[::-1]
+
+	return s
+
 class Config(object):
 	
 	def __init__(self):
@@ -60,7 +96,6 @@ class Config(object):
 			self.s_s3_data_root = d_settings["LD_S3_DATA_ROOT"]
 				
 
-			self.trading_start_recno = int(d_settings["TRADING_START_RECNO"])
 			self.b_process_data = bool(d_settings["PROCESS_DATA"])
 
 			self.s_dd_region = d_settings["DDREGION"]
@@ -86,8 +121,8 @@ class Config(object):
 			
 			self.first_jsunnoon = int(d_settings["FIRST_JSUNNOON"])
 		
-			self.encr_key = int(d_settings["ENCR_KEY"], base=2)
-		
+			self.encr_key = long_to_bytes(int(d_settings["ENCR_KEY"], base=2))
+			log.debug("encr_key = %s" % self.encr_key)
 			self.b_modify_ohlcv_flag = bool(d_settings["MODIFY_OHLCV_FLAG"])
 			
 			self.fifo_count = int(d_settings["FIFO_COUNT"])

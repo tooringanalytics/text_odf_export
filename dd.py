@@ -35,6 +35,7 @@ import threading
 import queue
 import glob
 import datetime as dt
+import shutil
 
 import boto.dynamodb
 from boto.dynamodb.item import Item
@@ -43,11 +44,67 @@ import boto.dynamodb.condition
 from odfexcept import *
 import odf
 import fifo
+import odfproc
 
 # Create logger
 import logging
 log = logging.getLogger(__name__)
 
+class AbstractDDStore(object):
+
+	def __init__(self):
+		pass
+
+	def get_exchange_basename(self, s_exchange):
+		return os.path.basename(s_exchange)
+
+	def get_odf_basename(self, s_odf_name):
+		s_odf_basename = os.path.basename(s_odf_name)
+		s_odf_basename = re.sub(r'\.rs3', '', s_odf_basename)
+		return s_odf_basename
+
+	def get_odf_symbol(self, s_odf_basename):
+		m = re.match(r'^(.*)\-.*$', s_odf_basename)
+
+		if not m:
+			raise ODFException("Invalid ODF Name %s" % s_odf_basename)
+
+		return m.group(1)
+
+	def get_fifo_basename(self, s_fifo_dd):
+		s_fifo_basename = os.path.basename(s_fifo_dd)
+		s_fifo_basename = re.sub(r'\.fif', '', s_fifo_basename)
+		return s_fifo_basename
+
+	def list_exchanges(self):
+		pass
+
+	def list_odfs(self, s_exchange):
+		pass
+
+	def open_odf(self, s_exchange, s_odf_dd):
+		pass
+
+	def save_odf(self, s_odf_dd, s_odf_basename, odf_obj):
+		pass
+
+	def get_fifo_dir(self, s_exchange, s_odf_basename):
+		pass
+
+	def get_fifo_path(self, s_exchange, s_odf_basename):
+		pass
+
+	def fifo_exists(self, s_fifo_dd, s_fifo_basename):
+		pass
+
+	def is_fifo_older_than(self, s_fifo_dd, s_fifo_basename, days):
+		pass
+
+	def open_fifo(self, s_fifo_dd, s_fifo_basename):
+		pass
+
+	def save_fifo(self, s_fifo_dd, s_fifo_basename, fifo_obj):
+		pass
 
 class IOWorker(threading.Thread):
 	""" Wrapper for IO Worker method. Each class is a single thread of execution.
@@ -115,7 +172,7 @@ class IOScheduler(object):
 		self.queue.put(l_req_obj, b_block, timeout)
     
 
-class DDStore(object):
+class DDStore(AbstractDDStore):
 	""" DynamoDB data store class. Methods to create/get and write to DD tables.
 	"""
 	TABLE_CREATION_WAIT = 2
@@ -449,14 +506,59 @@ class DDStore(object):
 
 		return ls_odf_names
 
-	def get_odf(self, s_exchange, s_odf_name):
-		pass
+	def list_fifos(self, s_exchange):
+
+		s_fifo_table_name = "_".join([s_exchange + "fifo"])
+
+		odf_table = self.get_table(s_fifo_table_name,
+									'FIFO_NAME',
+									str,
+									'FIFO_RECNO',
+									int)
+
+		d_scan_filter = {
+			'FIFO_RECNO': boto.dynamodb.condition.EQ(1),
+		}
+
+		fifo_recs = odf_table.scan(scan_filter=d_scan_filter,
+									attributes_to_get=['FIFO_NAME'],)
+
+		ls_fifo_names = []
+		for fifo_rec in fifo_recs:
+			ls_fifo_names.append(fifo_rec['FIFO_NAME'])
+
+		return ls_fifo_names
+
+	def get_object(self, s_table_name, s_name_key, s_name_value, ls_attribs, d_table_schema):
+		dd_table = self.get_table(s_table_name,
+									**d_table_schema)
+
+		d_scan_filter = {
+			s_name_key : boto.dynamodb.condition.EQ(s_name_value),
+		}
+
+		l_dd_recs = dd_table.scan(scan_filter=d_scan_filter,
+									attributes_to_get=ls_attribs)
+
+		return l_dd_recs
 
 
-class LocalDDStore(object):
+
+class LocalDDStore(AbstractDDStore):
 
 	def __init__(self, s_local_dd_data_root):
 		self.s_root_dir = os.path.abspath(s_local_dd_data_root)
+		self.b_force_fifo_old  = False
+
+	def clear_state(self, s_exchange_basename, s_odf_basename):
+		s_fifo_dir = self.get_fifo_dir(s_exchange_basename, 
+										s_odf_basename)
+
+		if os.path.exists(s_fifo_dir):
+			shutil.rmtree(s_fifo_dir)
+		s_txt_odf_name = self.get_text_odf(s_exchange_basename, s_odf_basename)
+		proc = odfproc.ODFProcessor(self)	
+		proc.convert_txt2bin(s_exchange_basename, s_txt_odf_name, True)
 
 	def list_exchanges(self):
 		s_root_glob = os.sep.join([self.s_root_dir, '*'])
@@ -476,6 +578,11 @@ class LocalDDStore(object):
 		ls_rs3s = glob.glob(s_exchange_glob)
 		return ls_rs3s
 
+	def get_text_odf(self, s_exchange_basename, s_odf_basename):
+		s_txt_odf_name = os.sep.join([self.s_root_dir, s_exchange_basename, s_odf_basename])
+		s_txt_odf_name = '.'.join([s_txt_odf_name, 'rs4'])
+		return s_txt_odf_name
+	
 	def get_odf_basename(self, s_odf_name):
 		s_odf_basename = os.path.basename(s_odf_name)
 		s_odf_basename = re.sub(r'\.rs3', '', s_odf_basename)
@@ -489,8 +596,7 @@ class LocalDDStore(object):
 
 		return m.group(1)
 
-
-	def open_odf(self, s_exchange, s_odf_dd):
+	def open_odf(self, s_exchange_basename, s_odf_dd):
 		odf_obj = odf.ODF()
 		fp_odf_bin = open(s_odf_dd, "rb")
 		odf_obj.read_bin_stream(fp_odf_bin)
@@ -498,19 +604,26 @@ class LocalDDStore(object):
 		odf_obj.set_store(self)
 		return odf_obj
 
-	def save_odf(drlg, s_odf_dd, s_odf_basename, odf_obj):
+	def save_odf(self, s_odf_dd, s_odf_basename, odf_obj):
 		odf_obj.to_bin_file(s_odf_dd)
 
+	def get_fifo_dir(self, s_exchange_basename, s_odf_basename):
+		s_fifo_root_dir = os.path.dirname(self.s_root_dir)
+		s_fifo_root_dir = os.sep.join([s_fifo_root_dir, 'fifo'])
+		s_fifo_dir = os.sep.join([s_fifo_root_dir, s_exchange_basename])
+		return s_fifo_dir
+
 	def get_fifo_path(self, s_exchange, s_odf_basename):
+		
 		s_fifo_dd = '.'.join([s_odf_basename, 'fif'])
-		s_root_dir = os.path.dirname(s_exchange)
-		s_root_dir = os.path.dirname(self.s_root_dir)
-		s_root_dir = os.sep.join([s_root_dir, 'fifo'])
-		s_root_dir = os.sep.join([s_root_dir, os.path.basename(s_exchange)])
-		s_fifo_dd = os.sep.join([s_root_dir, s_fifo_dd])
-		s_fifo_dir = os.path.dirname(s_fifo_dd)
+		
+		s_fifo_dir = self.get_fifo_dir(s_exchange, s_odf_basename)
+		
+		s_fifo_dd = os.sep.join([s_fifo_dir, s_fifo_dd])
+		
 		if not os.path.exists(s_fifo_dir):
 			os.makedirs(s_fifo_dir)
+
 		return s_fifo_dd
 
 	def get_fifo_basename(self, s_fifo_dd):
@@ -521,7 +634,9 @@ class LocalDDStore(object):
 	def fifo_exists(self, s_fifo_dd, s_fifo_basename):
 		return os.path.exists(s_fifo_dd)
 
-	def is_fifo_older_than(self, s_fifo_dd, s_fifo_basename, days):		
+	def is_fifo_older_than(self, s_fifo_dd, s_fifo_basename, days):
+		if self.b_force_fifo_old:
+			return True
 		dt_fifo_mtime = dt.datetime.fromtimestamp(os.path.getmtime(s_fifo_dd))
 		dt_now = dt.datetime.now()
 		dt_delta = dt_now - dt_fifo_mtime
@@ -548,12 +663,12 @@ def get_dd_store(config):
 	if config.b_test_mode:
 		return LocalDDStore(config.s_local_dd_data_root)
 
-	s_aws_access_key_id = self.config.s_dd_access_key
-	s_aws_secret_access_key = self.config.s_dd_secret_access_key
-	s_region_name = self.config.s_dd_region
-	read_units = int(self.config.dd_read_units)
-	write_units = int(self.config.dd_write_units)
-	write_units_opt = int(self.config.dd_write_units_opt)
+	s_aws_access_key_id = config.s_dd_access_key
+	s_aws_secret_access_key = config.s_dd_secret_access_key
+	s_region_name = config.s_dd_region
+	read_units = int(config.dd_read_units)
+	write_units = int(config.dd_write_units)
+	write_units_opt = int(config.dd_write_units_opt)
 
 	return DDStore(s_aws_access_key_id,
 					s_aws_secret_access_key,

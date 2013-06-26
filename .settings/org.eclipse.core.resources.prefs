@@ -1,0 +1,13 @@
+eclipse.preferences.version=1
+encoding/binary.py=utf-8
+encoding/chunk.py=utf-8
+encoding/config.py=utf-8
+encoding/dd.py=utf-8
+encoding/fce.py=utf-8
+encoding/fifo.py=utf-8
+encoding/odf.py=utf-8
+encoding/odf2fce.py=utf-8
+encoding/odfproc.py=utf-8
+encoding/s3.py=utf-8
+encoding/test.py=utf-8
+encoding/text_odf_export.py=utf-8

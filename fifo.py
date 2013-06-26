@@ -157,10 +157,10 @@ class FIFORecord(BinaryStruct):
 			ls_values = line.strip().split(',')
 
 			l_values.append(int(ls_values[0]))		# FIFO_RECNO
-			l_values.append(Decimal(ls_values[1]))	# FIFO_OPEN
-			l_values.append(Decimal(ls_values[2]))	# FIFO_HIGH
-			l_values.append(Decimal(ls_values[3]))	# FIFO_LOW
-			l_values.append(Decimal(ls_values[4]))	# FIFO_CLOSE
+			l_values.append(dc.Decimal(ls_values[1]))	# FIFO_OPEN
+			l_values.append(dc.Decimal(ls_values[2]))	# FIFO_HIGH
+			l_values.append(dc.Decimal(ls_values[3]))	# FIFO_LOW
+			l_values.append(dc.Decimal(ls_values[4]))	# FIFO_CLOSE
 
 		except:
 			raise
@@ -331,7 +331,7 @@ class FIFO(BinaryStruct):
 					continue
 				self.d_recno_index[recno] = fifo_rec
 				self.dedup(d_dedup_dict, fifo_rec)
-				log.debug(str(fifo_rec))
+				#log.debug(str(fifo_rec))
 				if recno == self.fifo_count:
 					break
 				#log.debug(odf_body.get_field('ODF_RECNO'))
@@ -342,7 +342,7 @@ class FIFO(BinaryStruct):
 			raise
 
 		self.l_fifo_records = self.get_dedup_objs(d_dedup_dict)	
-		log.debug(self.l_fifo_records)
+		#log.debug(self.l_fifo_records)
 		# Parse headers.
 		# To do: store odf records as a list of dicts in internally instead of 
 		# storing the encoder/decoder binarystruct objects
@@ -378,13 +378,13 @@ class FIFO(BinaryStruct):
 			else:
 				fifo_rec = null_fifo_rec
 			buf = buf + fifo_rec.to_bin()
-			log.debug(str(fifo_rec))
+			#log.debug(str(fifo_rec))
 		header_recno = self.fifo_count + 1
 		# First hash all headers into the dup-detect dict
 		for fifo_header in self.l_fifo_headers:
 			buf = buf + fifo_header.to_bin()
-			log.debug(str(fifo_header))
-		log.debug(len(buf))
+			#log.debug(str(fifo_header))
+		#log.debug(len(buf))
 		return buf
 
 	def to_dict(self, s_odf_basename):
@@ -442,7 +442,7 @@ class FIFO(BinaryStruct):
 		return ohlc_divider
 
 	def compute_tick(self, ctx, dc_ohlc_divider):
-		dc_tick = dc.Decimal('0')
+		dc_tick = dc.Decimal('1.0')
 
 		fifo_rec = self.l_fifo_records[0]
 
