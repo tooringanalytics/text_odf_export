@@ -28,6 +28,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
 import boto.s3
+import boto.s3.connection
 import boto.s3.bucket
 import boto.s3.key
 
@@ -344,11 +345,13 @@ class S3Store(AbstractFileStore):
 		key.delete()
 	
 	def remote_bucket(self, s_path):
-		self.s_bucket
+		return self.s_bucket
 	
 	def remote_bucket_exists(self, s_bucket):
 		bucket = boto.s3.bucket.Bucket(connection=self.connection, name=s_bucket)
-		return bucket.exists()
+		if not bucket:
+			return False
+		return True
 		
 	def remote_make_bucket(self, s_path):
 		pass
@@ -411,5 +414,5 @@ def get_s3_store(config):
 		s3store = LocalS3Store(config.s_local_s3_data_root)
 		return s3store
 
-	s3store = S3Store(config.s_s3_access_key, config.s_s3_secret_access_key, config.s_dd_region)
+	s3store = S3Store(config.s_s3_data_root, config.s_s3_access_key, config.s_s3_secret_access_key, config.s_dd_region)
 	return s3store

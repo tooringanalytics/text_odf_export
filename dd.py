@@ -662,8 +662,8 @@ class LocalDDStore(AbstractDDStore):
 
 def get_dd_store(config):
 
-	if config.b_test_mode:
-		return LocalDDStore(config.s_local_dd_data_root)
+	#if config.b_test_mode:
+	return LocalDDStore(config.s_local_dd_data_root)
 
 	s_aws_access_key_id = config.s_dd_access_key
 	s_aws_secret_access_key = config.s_dd_secret_access_key

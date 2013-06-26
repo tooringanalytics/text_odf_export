@@ -60,7 +60,7 @@ def roundup(n):
 	return n
 
 class Odf2Fce(object):
-	""" Application class for text_odf_export
+	""" Application class for ODF to FCE conversion
 	"""
 
 	re_reply_yes = re.compile(r'^(y|(yes))$', re.I)
@@ -981,22 +981,6 @@ class Odf2Fce(object):
 
 		log.info("%s: Completed task." % s_name)
 
-def test_settings():
-	app = Odf2Fce()
-	app.config = config.Config()
-	app.config.read_settings("settings.txt")
-
-def test_ls_exchanges():
-	app = Odf2Fce()
-	app.config = config.Config()
-	app.config.read_settings("settings.txt")
-	return app.list_exchanges()
-
-def test_ls_odfs(s_exchange):
-	app = Odf2Fce()
-	app.config = config.Config()
-	app.config.read_settings("settings.txt")
-	return app.list_odfs(s_exchange)
 
 if __name__ == "__main__":
 	app = Odf2Fce()
