@@ -43,6 +43,7 @@ import fce
 import chunk
 import s3
 import dd
+import context
 
 import logging
 import logging.handlers
@@ -131,9 +132,13 @@ class Odf2Fce(object):
 		s_working_dir = os.path.dirname(os.path.abspath(__file__))
 		return s_working_dir
 
-	def refresh_fifo(self, odf_obj, s_fifo_dd, s_fifo_basename):
-		config = self.config
-		dd_store = self.dd_store
+	def refresh_fifo(self, ctx):
+		config = ctx.config
+		dd_store = ctx.dd_store
+		odf_obj = ctx.odf_obj
+		s_fifo_dd = ctx.s_fifo_dd
+		s_fifo_basename = ctx.s_fifo_basename
+		
 		fifo_obj = None
 		if dd_store.fifo_exists(s_fifo_dd, s_fifo_basename):
 
@@ -148,7 +153,7 @@ class Odf2Fce(object):
 				fifo_obj = dd_store.open_fifo(s_fifo_dd, s_fifo_basename)
 				fifo_obj.update_from_list(l_fifo_arr)
 				fifo_obj.store_header()
-				dd_store.save_fifo(s_fifo_dd, s_fifo_basename, fifo_obj)
+				dd_store.save_fifo(s_fifo_dd, s_fifo_basename, fifo_obj, config.b_do_csv_chunk)
 			else:
 				log.debug("FIFO is too recent (<25 days old). Skipping Update...")
 				fifo_obj = dd_store.open_fifo(s_fifo_dd, s_fifo_basename)
@@ -160,7 +165,7 @@ class Odf2Fce(object):
 			fifo_obj = fifo.FIFO(fifo_count=config.fifo_count)
 			# Need to optimize to reduce writes. only updates entries should be saved back.
 			fifo_obj.read_list(l_fifo_arr)
-			dd_store.save_fifo(s_fifo_dd, s_fifo_basename, fifo_obj)
+			dd_store.save_fifo(s_fifo_dd, s_fifo_basename, fifo_obj, config.b_do_csv_chunk)
 
 		return fifo_obj
 
@@ -176,12 +181,16 @@ class Odf2Fce(object):
 
 		log.debug("FIFO %s TEXT:\n%s\n" % (s_fifo_dd, buf))
 
-	def fill_missing_odf_header_records(self, odf_obj, s_odf_dd, s_odf_basename, fifo_obj, fce_pathspec):
+	def fill_missing_odf_header_records(self, ctx, fifo_obj):
 
-		config = self.config
-		dd_store = self.dd_store
-		s3_store = self.s3_store
-
+		config = ctx.config
+		dd_store = ctx.dd_store
+		s3_store = ctx.s3_store
+		
+		odf_obj = ctx.odf_obj
+		s_odf_dd = ctx.s_odf_dd
+		s_odf_basename = ctx.s_odf_basename
+		
 		# Get the common ODF headers
 		odf_gmt_offset = odf_obj.get_header_value(config.gmt_offset_storloc)
 		odf_trading_start_recno = odf_obj.get_header_value(config.trading_start_recno_storloc)
@@ -220,7 +229,7 @@ class Odf2Fce(object):
 															config.trading_recs_perday)
 			odf_highest_recno_close = odf_obj.get_field(odf_highest_recno, 'ODF_CLOSE')
 
-			prev_fce_obj = s3_store.open_fce(fce_pathspec, fce_pathspec.s_prev_fce_header_file_name, config.encr_key)
+			prev_fce_obj = s3_store.open_fce(ctx, ctx.s_prev_fce_header_file_name, config.encr_key)
 
 			odf_prev_highest_recno_close = odf_obj.find_prev_highest_recno_close(prev_fce_obj)
 
@@ -247,8 +256,9 @@ class Odf2Fce(object):
 		config.highest_recno_close = odf_highest_recno_close
 		config.prev_highest_recno_close = odf_prev_highest_recno_close
 
-	def fill_missing_odf_records(self, odf_obj):
-		config = self.config
+	def fill_missing_odf_records(self, ctx):
+		config = ctx.config
+		odf_obj = ctx.odf_obj
 
 		r = config.last_fced_recno
 		c = odf_obj.get_value(r, 'ODF_CLOSE')
@@ -293,9 +303,9 @@ class Odf2Fce(object):
 
 		return True
 
-	def fill_fce_intervals_array(self):
+	def fill_fce_intervals_array(self, ctx):
 		l_array = []
-		config = self.config
+		config = ctx.config
 		
 		if config.b_process_L31:
 			l_array.append([31, 1, 1, 0, 0])
@@ -368,37 +378,22 @@ class Odf2Fce(object):
 		# Return only least significant 5 digits of JDN
 		return self.get_julian_day_number(sunday_last_noon) % 100000
 
-	def write_chunk_files(self, fce_pathspec, chunk_arr_short_list):
-		s3_store = self.s3_store
-		config = self.config
+	def write_chunk_files(self, ctx, chunk_arr_short_list):
+		
+		s3_store = ctx.s3_store
+		config = ctx.config
+		
 		for i in range(chunk_arr_short_list.length()):
 			chunk_arr_short = chunk_arr_short_list.get_chunk_arr_at(i)
 			s_chunk_arr_short_name = chunk_arr_short.get_name()
 
-			#s_chunk_file_name = re.sub(r'\.rs3', '.fce', s_chunk_arr_short_name)
-			#s_chunk_file_name = '.'.join([s_chunk_arr_short_name, 'fce'])
-
 			(L_no, fce_jsunnoon, chunk_no) = chunk.get_components_from_chunk_name(s_chunk_arr_short_name)
 
-			(s_chunk_file_dir_s3, s_chunk_file_name_s3) = s3_store.get_chunk_file_path(fce_pathspec, L_no, fce_jsunnoon, s_chunk_arr_short_name)
-			#s_chunk_file_name_s3 = os.sep.join([s_fce_s3, str(L_no), str(fce_jsunnoon), s_chunk_file_name])
+			#log.debug("Writing chunk & CSV to TMP & S3: %s..." % s_chunk_file_name_tmp)
+			s3_store.save_chunk_file(ctx, L_no, fce_jsunnoon, chunk_arr_short, config.encr_key, config.b_do_csv_chunk)
 
-			(s_chunk_file_tmp_dir, s_chunk_file_name_tmp) = s3_store.get_chunk_file_tmp_path(fce_pathspec, L_no, fce_jsunnoon, s_chunk_arr_short_name)
-			#s_chunk_file_name_tmp = os.sep.join([s_fce_tmp, str(L_no), str(fce_jsunnoon), s_chunk_file_name])
 
-			#log.debug("Writing chunk to TMP & S3: %s..." % s_chunk_file_name_tmp)
-			s3_store.save_chunk_file(s_chunk_file_name_tmp, chunk_arr_short, config.encr_key)
-
-			s_chunk_csv_name_tmp = '.'.join([s_chunk_file_name_tmp, "csv"])
-
-			if self.config.b_do_csv_chunk:
-				#log.debug("Saving chunk CSV: %s..." % (s_chunk_csv_name_tmp))
-				chunk_arr_short.save_csv(s_chunk_csv_name_tmp)
-
-			#log.debug("Moving chunk tmp file to S3 %s:%s:" % (s_chunk_file_dir_s3, s_chunk_file_name_s3))
-			s3_store.upload_file(s_chunk_file_name_tmp, s_chunk_file_dir_s3, s_chunk_file_name_s3)
-
-	def find_first_nonzero_chunk_open(self, chunk_arr):
+	def find_first_nonzero_chunk_open(self, ctx, chunk_arr):
 		n = 0
 		chunk_open = 0
 		while True:
@@ -410,15 +405,15 @@ class Odf2Fce(object):
 			if chunk_open > 0:
 				break
 
-			if n == self.config.chunk_size:
-				return (self.config.chunk_size, 0)
+			if n == ctx.config.chunk_size:
+				return (ctx.config.chunk_size, 0)
 
 
 		return (n, chunk_open)
 
 
-	def find_last_nonzero_chunk_close(self, chunk_arr):
-		n = self.config.chunk_size + 1
+	def find_last_nonzero_chunk_close(self, ctx, chunk_arr):
+		n = ctx.config.chunk_size + 1
 		chunk_close = 0
 		while True:
 			
@@ -435,9 +430,9 @@ class Odf2Fce(object):
 		return (n, chunk_close)
 
 
-	def fill_empty_chunk_records(self, chunk_arr):
+	def fill_empty_chunk_records(self, ctx, chunk_arr):
 		
-		(first_nonzero_chunk_recno, first_nonzero_chunk_open) = self.find_first_nonzero_chunk_open(chunk_arr)
+		(first_nonzero_chunk_recno, first_nonzero_chunk_open) = self.find_first_nonzero_chunk_open(ctx, chunk_arr)
 
 		m = first_nonzero_chunk_recno
 
@@ -446,11 +441,11 @@ class Odf2Fce(object):
 			m = m - 1		
 
 			if m < 1:
-				(last_nonzero_chunk_recno, last_nonzero_chunk_close) = self.find_last_nonzero_chunk_close(chunk_arr)
+				(last_nonzero_chunk_recno, last_nonzero_chunk_close) = self.find_last_nonzero_chunk_close(ctx, chunk_arr)
 				m = last_nonzero_chunk_recno
 				while True:
 					m = m + 1
-					if m > self.config.chunk_size:
+					if m > ctx.config.chunk_size:
 						return chunk_arr
 					else:
 						chunk_arr.set_field(m, 'OPEN', last_nonzero_chunk_close)
@@ -464,12 +459,14 @@ class Odf2Fce(object):
 				chunk_arr.set_field(m, 'CLOSE', first_nonzero_chunk_open)
 
 
-	def get_chunk_arr_short_list(self, chunk_arr_list):
+	def get_chunk_arr_short_list(self, ctx, chunk_arr_list):
 		
 		chunk_arr_short_list = chunk.ChunkArrayList()
 		for i in range(chunk_arr_list.length()):
 			chunk_arr = chunk_arr_list.get_chunk_arr_at(i)
 
+			chunk_arr = self.fill_empty_chunk_records(ctx, chunk_arr)
+			
 			highest_volume = chunk_arr.highest_volume()
 			#log.debug("HIGHEST_VOLUME=%d", int(highest_volume))
 			volume_tick = roundup(highest_volume / 65535)
@@ -479,24 +476,22 @@ class Odf2Fce(object):
 			chunk_arr.set_header_field('VOLUME_TICK', int(volume_tick))
 			chunk_arr.set_header_field('LOWEST_LOW', f_lowest_low)
 
-			chunk_arr = self.fill_empty_chunk_records(chunk_arr)
-
-			chunk_arr_short = self.get_chunk_arr_short(chunk_arr)
-
+			chunk_arr_short = self.get_chunk_arr_short(ctx, chunk_arr)
+			
 			chunk_arr_short_list.add_chunk_arr(chunk_arr_short)
 
 		return chunk_arr_short_list
 
-	def get_chunk_arr_short(self, chunk_arr):
+	def get_chunk_arr_short(self, ctx, chunk_arr):
 
-		chunk_arr_short = chunk.ChunkArray(chunk_arr.get_name(), self.config.chunk_size, debug_id=2)
+		chunk_arr_short = chunk.ChunkArray(chunk_arr.get_name(), ctx.config.chunk_size, debug_id=2)
 
-		for i in range(self.config.chunk_size):
+		for i in range(ctx.config.chunk_size):
 			vol_val = rounddown(chunk_arr.get_field(i+1, 'VOLUME') / chunk_arr.get_header_field('VOLUME_TICK'))
-			open_val = rounddown(chunk_arr.get_field(i+1, 'OPEN') / float(self.config.tick))
-			high_val = rounddown(chunk_arr.get_field(i+1, 'HIGH') / float(self.config.tick))
-			low_val = rounddown(chunk_arr.get_field(i+1, 'LOW') / float(self.config.tick))
-			close_val = rounddown(chunk_arr.get_field(i+1, 'CLOSE') / float(self.config.tick))
+			open_val = rounddown(chunk_arr.get_field(i+1, 'OPEN') / float(ctx.config.tick))
+			high_val = rounddown(chunk_arr.get_field(i+1, 'HIGH') / float(ctx.config.tick))
+			low_val = rounddown(chunk_arr.get_field(i+1, 'LOW') / float(ctx.config.tick))
+			close_val = rounddown(chunk_arr.get_field(i+1, 'CLOSE') / float(ctx.config.tick))
 
 			chunk_arr_short.set_field(i+1, 'VOLUME', int(vol_val))
 			chunk_arr_short.set_field(i+1, 'OPEN', int(open_val))
@@ -516,15 +511,15 @@ class Odf2Fce(object):
 		return chunk_arr_short
 
 
-	def get_chunk_arr(self, chunk_arr_short):
+	def get_chunk_arr(self, ctx, chunk_arr_short):
 		
-		chunk_arr = chunk.ChunkArray(chunk_arr_short.get_name(), self.config.chunk_size, debug_id=3)
-		for i in range(self.config.chunk_size):
+		chunk_arr = chunk.ChunkArray(chunk_arr_short.get_name(), ctx.config.chunk_size, debug_id=3)
+		for i in range(ctx.config.chunk_size):
 			f_vol_val = chunk_arr_short.get_field(i+1, 'VOLUME') * chunk_arr_short.get_header_field('VOLUME_TICK')
-			f_open_val = chunk_arr_short.get_field(i+1, 'OPEN') * float(self.config.tick)
-			f_high_val = chunk_arr_short.get_field(i+1, 'HIGH') * float(self.config.tick)
-			f_low_val = chunk_arr_short.get_field(i+1, 'LOW') * float(self.config.tick)
-			f_close_val = chunk_arr_short.get_field(i+1, 'CLOSE') * float(self.config.tick)
+			f_open_val = chunk_arr_short.get_field(i+1, 'OPEN') * float(ctx.config.tick)
+			f_high_val = chunk_arr_short.get_field(i+1, 'HIGH') * float(ctx.config.tick)
+			f_low_val = chunk_arr_short.get_field(i+1, 'LOW') * float(ctx.config.tick)
+			f_close_val = chunk_arr_short.get_field(i+1, 'CLOSE') * float(ctx.config.tick)
 
 			chunk_arr.set_field(i+1, 'VOLUME', f_vol_val)
 			chunk_arr.set_field(i+1, 'OPEN', f_open_val)
@@ -533,7 +528,7 @@ class Odf2Fce(object):
 			chunk_arr.set_field(i+1, 'CLOSE', f_close_val)
 
 		d_chunk_header = {
-			'LOWEST_LOW' : chunk_arr_short.get_header_field('LOWEST_LOW') / float(self.config.ohlc_divider),
+			'LOWEST_LOW' : chunk_arr_short.get_header_field('LOWEST_LOW') / float(ctx.config.ohlc_divider),
 			'VOLUME_TICK' : chunk_arr_short.get_header_field('VOLUME_TICK'),
 			'CHUNK_OPEN_RECNO' : chunk_arr_short.get_header_field('CHUNK_OPEN_RECNO'),
 			'CHUNK_CLOSE_RECNO' : chunk_arr_short.get_header_field('CHUNK_CLOSE_RECNO'),
@@ -543,10 +538,9 @@ class Odf2Fce(object):
 
 		return chunk_arr
 
-	def store_zeros_in_chunk_arr(self, chunk_arr):
-		#chunk_arr = ChunkArray(chunk_arr.get_name(), self.config.chunk_size)
-
-		for i in range(self.config.chunk_size):
+	def store_zeros_in_chunk_arr(self, ctx, chunk_arr):
+		
+		for i in range(ctx.config.chunk_size):
 			chunk_arr.set_field(i+1, 'OPEN', 0.0)
 			chunk_arr.set_field(i+1, 'HIGH', 0.0)
 			chunk_arr.set_field(i+1, 'LOW', 0.0)
@@ -556,51 +550,34 @@ class Odf2Fce(object):
 		d_chunk_header = {
 			'LOWEST_LOW' : 0.0,
 			'VOLUME_TICK' : int(0),
-			'CHUNK_OPEN_RECNO' : int(self.config.highest_recno),
-			'CHUNK_CLOSE_RECNO' : int(self.config.trading_start_recno),
+			'CHUNK_OPEN_RECNO' : int(ctx.config.highest_recno),
+			'CHUNK_CLOSE_RECNO' : int(ctx.config.trading_start_recno),
 		}
 
 		chunk_arr.set_header(d_chunk_header)
 
 		return chunk_arr
 
-	def get_chunk_arr_ready(self, fce_pathspec, s_chunk_file_name, chunk_arr_list, L_no, fce_jsunnoon):
+	def get_chunk_arr_ready(self, ctx, s_chunk_file_name, chunk_arr_list, L_no, fce_jsunnoon):
 		
-		s3_store = self.s3_store
-		config = self.config
+		s3_store = ctx.s3_store
+		config = ctx.config
 		
-		chunk_size = self.config.chunk_size
+		chunk_size = config.chunk_size
 		
 		#log.debug("Looking for chunk array %s" % s_chunk_file_name)
 		# First check if we already have the chunk array open in memory
 		chunk_arr = chunk_arr_list.get_chunk_arr(s_chunk_file_name)
 
-		if chunk_arr is None:
-			# We don't have it in memory, so check TMP and S3
-			(s_chunk_tmp_dir, s_chunk_file_name_tmp) = s3_store.get_chunk_file_tmp_path(fce_pathspec, L_no, fce_jsunnoon, s_chunk_file_name)
-
-			(s_chunk_file_dir_s3, s_chunk_file_name_s3) = s3_store.get_chunk_file_path(fce_pathspec, L_no, fce_jsunnoon, s_chunk_file_name)
-
-			''' First check if the chunk file exists in TMP,
-				Then check if its available in S3, and download it if it does,
-				If it doesn't exist, create a new chunk array and initialize it
-			'''
-			if os.path.exists(s_chunk_file_name_tmp):
-				# The file exists locally, open and use it.
-				#log.debug("Looking in TMP: %s" % s_chunk_file_name)
-				chunk_arr_short = chunk.read_short_chunk_array(s_chunk_file_name_tmp, s_chunk_file_name, config.chunk_size, config.encr_key)
-				chunk_arr = self.get_chunk_arr(chunk_arr_short)
-			elif s3_store.chunk_file_exists(s_chunk_file_dir_s3, s_chunk_file_name_s3):
-				# The chunk array exists on S3, download it locally and use it
-				#log.debug("Looking in S3: %s" % s_chunk_file_name)
-				s3_store.download_file(s_chunk_file_dir_s3, s_chunk_file_name_s3, s_chunk_file_name_tmp)
-				chunk_arr_short = chunk.read_short_chunk_array(s_chunk_file_name_tmp, s_chunk_file_name, config.chunk_size, config.encr_key)
-				chunk_arr = self.get_chunk_arr(chunk_arr_short)
+		if chunk_arr is None:			
+			if s3_store.chunk_file_exists(ctx, L_no, fce_jsunnoon, s_chunk_file_name):
+				chunk_arr_short = s3_store.open_chunk_file(ctx, L_no, fce_jsunnoon, s_chunk_file_name, config.chunk_size, config.encr_key)
+				chunk_arr = self.get_chunk_arr(ctx, chunk_arr_short)
 			else:
 				# The chunk array does not exist, Create a new chunk array
 				#log.debug("Creating new chunk array: %s" % s_chunk_file_name)
 				chunk_arr = chunk.ChunkArray(s_chunk_file_name, chunk_size, debug_id=4)
-				chunk_arr = self.store_zeros_in_chunk_arr(chunk_arr)
+				chunk_arr = self.store_zeros_in_chunk_arr(ctx, chunk_arr)
 			# Add the newly opened chunk array to the list
 			chunk_arr_list.add_chunk_arr(chunk_arr)
 		else:
@@ -609,11 +586,12 @@ class Odf2Fce(object):
 				
 		return chunk_arr
 
-	def write_chunk_arr(self, fce_pathspec, s_odf_basename, odf_recno, odf_obj, chunk_arr_list, l_array_fce_intervals):
+	def write_chunk_arr(self, ctx, odf_recno, chunk_arr_list, l_array_fce_intervals):
 		
-		config = self.config
-
-		odf_jsunnoon = fce_pathspec.odf_jsunnoon
+		config = ctx.config
+		s_odf_basename = ctx.s_odf_basename
+		odf_obj = ctx.odf_obj
+		odf_jsunnoon = ctx.odf_jsunnoon
 
 		#log.debug("odf_recno=%d" % odf_recno)
 		for l_fce_interval in l_array_fce_intervals:
@@ -696,7 +674,7 @@ class Odf2Fce(object):
 
 
 			try:
-				chunk_arr = self.get_chunk_arr_ready(fce_pathspec, s_chunk_file_name, chunk_arr_list, L_no, fce_jsunnoon)
+				chunk_arr = self.get_chunk_arr_ready(ctx, s_chunk_file_name, chunk_arr_list, L_no, fce_jsunnoon)
 
 				begin_week_of_4_week_bar_orig = (1 + (odf_jsunnoon - config.first_jsunnoon) / 7) /4
 				begin_week_of_4_week_bar = rounddown(begin_week_of_4_week_bar_orig)
@@ -744,106 +722,131 @@ class Odf2Fce(object):
 
 		return chunk_arr_list
 
-	def process_fce(self, fce_pathspec, s_odf_dd, s_odf_basename, odf_obj, s_odf_s3, l_array_fce_intervals):
-		odf_jsunnoon = fce_pathspec.odf_jsunnoon
-		config = self.config
-		s3_store = self.s3_store
-		dd_store = self.dd_store
-
+	def process_fce(self, ctx, l_array_fce_intervals):
+		
+		odf_jsunnoon = ctx.odf_jsunnoon
+		config = ctx.config
+		s3_store = ctx.s3_store
+		dd_store = ctx.dd_store
+		s_odf_dd = ctx.s_odf_dd
+		s_exchange_basename = ctx.s_exchange_basename
+		s_odf_basename = ctx.s_odf_basename
+		odf_obj = ctx.odf_obj
+		
 		fce_obj = None
 
-		if not s3_store.fce_exists(fce_pathspec, fce_pathspec.s_fce_header_file_name):
+		if not s3_store.fce_exists(ctx, ctx.s_fce_header_file_name):
 			fce_obj = fce.FCE(config)
-			log.debug("Saving FCE to S3: %s..." % fce_pathspec.s_fce_header_file_name)
-			s3_store.save_fce(fce_pathspec, fce_pathspec.s_fce_header_file_name, fce_obj, config.encr_key)
+			log.debug("Saving FCE to S3: %s..." % ctx.s_fce_header_file_name)
+			s3_store.save_fce(ctx, ctx.s_fce_header_file_name, fce_obj, config.encr_key, config.b_do_csv_chunk)
 
 		current_jsunnoon = self.get_current_jsunnoon()
 
 		if config.last_fced_recno == config.highest_recno and not odf_jsunnoon == current_jsunnoon:
 			# Load the entire ODF from DD and copy it to S3
-			log.debug("Saving ODF to S3 at %s..." % s_odf_s3)
-			s3_store.save_odf(s_odf_s3, odf_obj)
+			log.debug("Saving ODF %s to S3" % s_odf_basename)
+			s3_store.save_odf(s_exchange_basename, s_odf_basename, odf_obj)
 			return
 		
 		if config.last_fced_recno == config.highest_recno:
 			log.debug("Already processed this ODF. Skipping...")
 			return
 		
-		
 		chunk_arr_list = chunk.ChunkArrayList()
 
 		log.debug("Generating chunk files... %d:%d" % (int(config.last_fced_recno), int(config.highest_recno)))
+		
 		debug_freq = 500
+		loop_count = 1
 		for odf_recno in odf_obj.get_recnos_within_limits(config):
-			if odf_recno % debug_freq == 0:
+			if loop_count % debug_freq == 0:
 				log.debug("write_chunk_arr:odf_recno=%d" % odf_recno)
-			chunk_arr_list = self.write_chunk_arr(fce_pathspec, 
-													s_odf_basename, 
-													odf_recno, 
-													odf_obj, 
+			chunk_arr_list = self.write_chunk_arr(ctx,  
+													odf_recno,  
 													chunk_arr_list, 
 													l_array_fce_intervals)
-		"""
-		odf_recno = config.last_fced_recno
-		debug_freq = 100
-		while True:
-			odf_recno += 1
-			if odf_obj.is_recno_out_of_limits(odf_recno, config.trading_start_recno, config.trading_recs_perday):
-				if odf_recno > config.highest_recno:
-					break
-				continue
-			if odf_recno % debug_freq == 0:
-				log.debug("write_chunk_arr:odf_recno=%d" % odf_recno)
-			chunk_arr_list = self.write_chunk_arr(fce_pathspec, s_odf_basename, odf_recno, odf_obj, chunk_arr_list, l_array_fce_intervals)
+			loop_count += 1
 			
-			if odf_recno >= config.highest_recno:
-				break
-		"""
 		log.debug("Preparing ShortChunk List from %d chunk arrays..." % chunk_arr_list.length())
 
-		chunk_arr_short_list = self.get_chunk_arr_short_list(chunk_arr_list)
+		chunk_arr_short_list = self.get_chunk_arr_short_list(ctx, chunk_arr_list)
 
 		log.debug("Writing %d chunk files..." % chunk_arr_short_list.length())
 		
-		self.write_chunk_files(fce_pathspec, chunk_arr_short_list)
+		self.write_chunk_files(ctx, chunk_arr_short_list)
 
 		odf_obj.set_header_value(config.last_fced_recno_storloc, int(config.highest_recno))
 		dd_store.save_odf(s_odf_dd, s_odf_basename, odf_obj)
 
-	def load_public_from_odf(self, odf_obj, config):
-		# Get the common ODF headers
-		odf_gmt_offset = odf_obj.get_header_value(config.gmt_offset_storloc)
-		odf_trading_start_recno = odf_obj.get_header_value(config.trading_start_recno_storloc)
-		odf_trading_recs_perday = odf_obj.get_header_value(config.trading_recs_perday_storloc)
-		odf_idf_currency = odf_obj.get_header_value(config.idf_currency_storloc)
-		odf_idf_currency_max_decimals = odf_obj.get_header_value(config.idf_currency_max_decimals_storloc)
-		odf_split_factor = odf_obj.get_header_value(config.split_factor_storloc)
-		odf_currency_value_of_point = odf_obj.get_header_value(config.currency_value_of_point_storloc)
-	
-		# Get the 'specific' odf headers, which may be missing
-		odf_tick = odf_obj.get_header_value(config.tick_storloc)
-		odf_ohlc_divider = odf_obj.get_header_value(config.ohlc_divider_storloc)
-		odf_last_fced_recno = odf_obj.get_header_value(config.last_fced_recno_storloc)
-		odf_highest_recno = odf_obj.get_header_value(config.highest_recno_storloc)
-		odf_highest_recno_close = odf_obj.get_header_value(config.highest_recno_close_storloc)
-		odf_prev_highest_recno_close = odf_obj.get_header_value(config.prev_highest_recno_close_storloc)
-	
-		# Save this ODF's common headers to public values
-		config.gmt_offset = odf_gmt_offset
-		config.trading_start_recno = odf_trading_start_recno
-		config.trading_recs_perday = odf_trading_recs_perday
-		config.idf_currency = odf_idf_currency
-		config.idf_currency_max_decimals = odf_idf_currency_max_decimals
-		config.split_factor = odf_split_factor
-		config.currency_value_of_point = odf_currency_value_of_point
 
-		# Save the ODf-specific header to public values
-		config.tick = odf_tick
-		config.ohlc_divider = odf_ohlc_divider
-		config.last_fced_recno = odf_last_fced_recno
-		config.highest_recno = odf_highest_recno
-		config.highest_recno_close = odf_highest_recno_close
-		config.prev_highest_recno_close = odf_prev_highest_recno_close
+	def initialize_environment(self):
+		config = self.config
+
+		''' Get the DD & S3 store objects
+		'''
+		self.dd_store = dd.get_dd_store(config)
+		self.s3_store = s3.get_s3_store(config)
+
+		''' Get current working directory
+		'''		
+		self.s_app_dir = self.get_working_dir()
+
+		''' Get the number of exchanges we have to process
+		'''
+		ls_exchanges = self.dd_store.list_exchanges()
+		
+		return ls_exchanges
+
+	
+	def odf2fce_all(self, ls_exchanges):
+		config = self.config
+		
+		for s_exchange in ls_exchanges:
+			
+			''' If we cannot process data, skip
+			'''
+			if not config.b_process_data:
+				continue
+	
+			''' Get the number of odf's in i-th exchange
+			'''
+			ls_odf_names = self.dd_store.list_odfs(s_exchange)
+	
+			for s_odf_dd in ls_odf_names:
+				self.odf2fce_single(config, s_exchange, s_odf_dd)
+		
+	def odf2fce_single(self, config, s_exchange, s_odf_dd):
+		
+		ctx= context.FCEContext(config.s_settings_file, 
+								self.dd_store,
+								self.s3_store, 
+								self.s_app_dir, 
+								s_exchange, 
+								s_odf_dd)
+		
+		self.process_odf2fce(ctx)
+		
+	def process_odf2fce(self, ctx):
+
+		config = ctx.config
+		
+		''' Print the ODF path on DD if required
+		'''
+		if self.b_show:
+			if config.b_test_mode:
+				log.info(ctx.s_odf_dd)
+			else:
+				log.info(':'.join([ctx.s_exchange, ctx.s_odf_dd]))
+		
+		fifo_obj = self.refresh_fifo(ctx)
+
+		self.fill_missing_odf_header_records(ctx, fifo_obj)
+
+		self.fill_missing_odf_records(ctx)
+
+		l_array_fce_intervals = self.fill_fce_intervals_array(ctx)
+
+		self.process_fce(ctx, l_array_fce_intervals)
 
 
 	def odf2fce(self):
@@ -852,93 +855,9 @@ class Odf2Fce(object):
 		log.info(dt.datetime.now())
 		log.info("-----CYCLE START-----")
 		
-		''' Get a handle to the configuration
-		'''
-		config = self.config
-
-		''' Get the DD & S3 store objects
-		'''
-		self.dd_store = dd.get_dd_store(config)
-		self.s3_store = s3.get_s3_store(config)
-
+		ls_exchanges = self.initialize_environment()
 		
-		''' Get current working directory
-		'''		
-		s_app_dir = self.get_working_dir()
-
-		''' Get the number of exchanges we have to process
-		'''
-		ls_exchanges = self.dd_store.list_exchanges()
-
-		for s_exchange in ls_exchanges:
-			
-			s_exchange_basename = self.dd_store.get_exchange_basename(s_exchange)
-
-			''' If we cannot process data, skip
-			'''
-			if not config.b_process_data:
-				continue
-
-			''' Get the number of odf's in i-th exchange
-			'''
-			ls_odf_names = self.dd_store.list_odfs(s_exchange)
-
-			for s_odf_dd in ls_odf_names:
-
-				s_odf_basename = self.dd_store.get_odf_basename(s_odf_dd)
-
-				''' Extract symbol name from ODF basename (string before first '_')
-				'''
-				s_symbol = self.dd_store.get_odf_symbol(s_odf_basename)
-
-				s_odf_s3 = self.s3_store.get_odf_path(s_exchange_basename, s_odf_basename)
-
-				''' Make FIFO name for this ODF from the ODF's basename
-				'''
-				s_fifo_dd = self.dd_store.get_fifo_path(s_exchange_basename, s_odf_basename)
-				s_fifo_basename = self.dd_store.get_fifo_basename(s_fifo_dd)
-
-				''' Get path to the FCE for this ODF on S3
-				''' 
-				
-				fce_pathspec = self.s3_store.get_fce_pathspec(s_app_dir,
-																s_exchange_basename,
-																s_symbol,
-																s_odf_basename)
-
-				''' Print the ODF path on DD if required
-				'''
-				if self.b_show:
-					if config.b_test_mode:
-						log.info(s_odf_dd)
-					else:
-						log.info(':'.join([s_exchange, s_odf_dd]))
-
-				odf_obj = self.dd_store.open_odf(s_exchange_basename, s_odf_dd)
-
-				'''
-				Load public variables from odf_obj
-				'''
-				
-				self.load_public_from_odf(odf_obj, config)
-				
-				
-				if config.b_test_mode and self.b_print_mode:
-					self.print_fifo_local(s_exchange_basename, s_odf_dd, s_fifo_dd)
-					continue
-
-				''' Refresh the FIFO from ODF data
-				'''
-				fifo_obj = self.refresh_fifo(odf_obj, s_fifo_dd, s_fifo_basename)
-
-				self.fill_missing_odf_header_records(odf_obj, s_odf_dd, s_odf_basename, fifo_obj, fce_pathspec)
-
-				self.fill_missing_odf_records(odf_obj)
-
-				l_array_fce_intervals = self.fill_fce_intervals_array()
-
-				self.process_fce(fce_pathspec, s_odf_dd, s_odf_basename, odf_obj, s_odf_s3, l_array_fce_intervals)
-
+		self.odf2fce_all(ls_exchanges)
 
 		log.info(dt.datetime.now())
 		log.info("-----CYCLE DONE-----")

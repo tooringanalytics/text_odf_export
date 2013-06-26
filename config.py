@@ -69,12 +69,14 @@ def long_to_bytes(val, endianness='little'):
 class Config(object):
 	
 	def __init__(self):
-		self.ddstore=None
-
+		pass
+		
 	def read_settings(self, s_settings_file):
 		""" Load settings from the settings file
 		@param s_settings_file: Path to the settings file.
 		"""
+		self.s_settings_file = s_settings_file
+		
 		fp_settings = open(s_settings_file, "r")
 
 		s_settings = fp_settings.read()

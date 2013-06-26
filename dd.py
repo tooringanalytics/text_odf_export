@@ -654,9 +654,11 @@ class LocalDDStore(AbstractDDStore):
 		fifo_obj.set_store(self)
 		return fifo_obj
 
-	def save_fifo(self, s_fifo_dd, s_fifo_basename, fifo_obj):
+	def save_fifo(self, s_fifo_dd, s_fifo_basename, fifo_obj, b_save_csv=False):
 		fifo_obj.to_bin_file(s_fifo_dd)
-
+		if b_save_csv:
+			fifo_obj.to_csv_file(s_fifo_dd + ".csv")
+		
 
 def get_dd_store(config):
 

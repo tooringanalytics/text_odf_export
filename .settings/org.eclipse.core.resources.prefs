@@ -2,6 +2,7 @@ eclipse.preferences.version=1
 encoding/binary.py=utf-8
 encoding/chunk.py=utf-8
 encoding/config.py=utf-8
+encoding/context.py=utf-8
 encoding/dd.py=utf-8
 encoding/fce.py=utf-8
 encoding/fifo.py=utf-8

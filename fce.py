@@ -38,36 +38,6 @@ from collections import OrderedDict
 import logging
 log = logging.getLogger(__name__)
 
-class FCEPathSpec(object):
-
-	def __init__(self,
-				s_app_dir,
-				s_exchange_basename,
-				s_symbol,
-				s_odf_basename):
-		super(FCEPathSpec, self).__init__()
-		self.init_params(s_app_dir, s_exchange_basename, s_symbol, s_odf_basename)
-
-	def init_params(self, s_app_dir, s_exchange_basename, s_symbol, s_odf_basename):
-		matchobj = re.match(r'^(.*\-18)(\d+).*$', s_odf_basename)
-
-		s_jsunnoon = matchobj.group(2)
-
-		s_fce_basename = matchobj.group(1)
-
-		self.odf_jsunnoon = int(s_jsunnoon)
-
-		self.prev_odf_jsunnoon = self.odf_jsunnoon - 7
-
-		self.s_fce_header_file_name = ''.join([s_fce_basename, str(self.odf_jsunnoon), '01', '.fce'])
-
-		self.s_prev_fce_header_file_name = ''.join([s_fce_basename, str(self.prev_odf_jsunnoon), '01', '.fce'])
-		
-		self.s_fce_s3_prefix = os.sep.join([s_exchange_basename, "fce", s_symbol])
-
-		self.s_fce_tmp = os.sep.join([s_app_dir, 'tmp', s_exchange_basename, 'fce', s_symbol])
-		if not os.path.exists(self.s_fce_tmp):
-			os.makedirs(self.s_fce_tmp)
 
 class FCEHeader(BinaryStruct):
 	""" ODF Header Binary Struct.
@@ -107,7 +77,7 @@ class FCEHeader(BinaryStruct):
 			s_field = d_field.keys()[0]
 			ls_values.append(str(self.d_fields[s_field]))
 		# Return only the main field value, and not padding or 'storloc'
-		s_buf = str(ls_values[0]) + '\n'
+		s_buf = ','.join(ls_values) + '\n'
 		return s_buf
 
 	def to_dict(self):
@@ -303,6 +273,15 @@ class FCE(BinaryStruct):
 		buf = self.to_bin(key)
 		fp_fce_bin.write(buf)
 		fp_fce_bin.close()
+
+	def to_csv(self):
+		return str(self)
+	
+	def to_csv_file(self, s_fce_header_csv_file_path):
+		fp_fce_csv = open(s_fce_header_csv_file_path, "w")
+		buf = self.to_csv()
+		fp_fce_csv.write(buf)
+		fp_fce_csv.close()
 
 	def __repr__(self):
 		""" Return a text representation of the FCE.

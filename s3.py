@@ -41,140 +41,125 @@ log = logging.getLogger(__name__)
 import os.path
 import os
 import shutil
+import re
 
-class AbstractS3Store(object):
 
+class AbstractFileStore(object):
+	lsep = os.sep
+	
 	def __init__(self):
 		pass
 
-
-class S3Store(object):
-	sep = "/"
+	def local_abspath(self, s_path):
+		return os.path.abspath(s_path)
 	
-	def __init__(self, s_root_dir, s_aws_access_id, s_aws_secret_access_key, s_aws_region):
-		super(S3Store, self).__init__()
-		self.connection = boto.s3.connection.S3Connection(s_aws_access_id,
-														s_aws_secret_access_key)
-		self.s_root_dir = s_root_dir
-
-	def upload_s3(self, s_local_file, s_bucket, s_remote_file):
-		bucket = boto.s3.bucket.Bucket(connection=self.connection, name=s_bucket)
-		key = boto.s3.key.Key(bucket)
-		key.key = s_remote_file
-		key.set_contents_from_filename(s_local_file)
-		return key
-
-	def download_s3(self, s_bucket, s_remote_file, s_local_file):
-		bucket = boto.s3.bucket.Bucket(connection=self.connection, name=s_bucket)
-		key = boto.s3.key.Key(bucket)
-		key.key = s_remote_file
-		key.get_contents_to_filename(s_local_file)
-		return key
-
-	def move_up_s3(self, s_local_file, s_bucket, s_remote_file):
-		self.upload(s_local_file, s_bucket, s_remote_file)
-		os.remove(s_local_file)
-
-	def move_down_s3(self, s_bucket, s_remote_file, s_local_file):
-		key = self.download(s_bucket, s_remote_file, s_local_file)
-		key.delete()
-
-	def exists_s3(self, s_bucket, s_remote_file):
-		bucket = boto.s3.bucket.Bucket(connection=self.connection, name=s_bucket)
-		key = boto.s3.key.Key(bucket)
-		key.key = s_remote_file
-		return key.exists()
+	def local_dirname(self, s_path):
+		return os.path.dirname(s_path)
 	
-class LocalS3Store(object):
-
-	def __init__(self, s_local_s3_data_root):
-		self.s_root_dir = os.path.abspath(s_local_s3_data_root)
-		super(LocalS3Store, self).__init__()
+	def local_path_exists(self, s_path):
+		return os.path.exists(s_path)
+	
+	def local_make_dirs(self, s_dir):
+		return os.makedirs(s_dir)
+		
+	def local_rmtree(self, s_path):
+		return shutil.rmtree(s_path)
+	
+	def local_remove(self, s_path):
+		return os.remove(s_path)
 
 	def clear_state(self, s_app_dir, s_exchange_basename, s_symbol, s_odf_basename):
-		s_odf_s3_dir = self.get_odf_dir(s_exchange_basename, 
-										s_odf_basename)
+		(s_odf_bucket, s_odf_remote_path) = self.get_odf_remote_path(s_exchange_basename, 
+																	s_odf_basename)
 
-		if os.path.exists(s_odf_s3_dir):
-			shutil.rmtree(s_odf_s3_dir)
+		if self.remote_path_exists(s_odf_bucket, s_odf_remote_path):
+			self.remote_remove(s_odf_remote_path)
 
 		self.clear_fce_state(s_app_dir, s_exchange_basename, s_symbol, s_odf_basename)
-
 
 	def clear_fce_state(self, s_app_dir, s_exchange_basename, s_symbol, s_odf_basename):
 		# Delete tmp path, fce output directory on s3 and chunk output directory on s3
 		fce_pathspec = self.get_fce_pathspec(s_app_dir, s_exchange_basename, s_symbol, s_odf_basename)
 
-		s_fce_tmp_path = fce_pathspec.s_fce_tmp
+		(s_fce_local_dir, s_fce_local_path) = self.get_fce_local_path(self, fce_pathspec, fce_pathspec.s_fce_header_filename)
 
-		if os.path.exists(s_fce_tmp_path):
-			shutil.rmtree(s_fce_tmp_path)
-
-		s_fce_s3_dir = os.sep.join([self.s_root_dir, fce_pathspec.s_fce_s3_prefix])
-
-		if os.path.exists(s_fce_s3_dir):
-			shutil.rmtree(s_fce_s3_dir)
-
-
-	def get_odf_dir(self, s_exchange_basename, s_odf_basename):
-
-		s_odf_s3_path = self.get_odf_path(s_exchange_basename, s_odf_basename)
-
-		return os.path.dirname(s_odf_s3_path)
-
-	def get_odf_path(self, s_exchange_basename, s_odf_basename):
-		s_odf_s3 = ""
-
-		s_odf_s3 = os.sep.join([self.s_root_dir, s_exchange_basename, "odf", s_odf_basename])
-		s_odf_s3 = '.'.join([s_odf_s3, "rs3"])
-		s_odf_s3_dir = os.path.dirname(s_odf_s3)
-
-		if not os.path.exists(s_odf_s3_dir):
-			os.makedirs(s_odf_s3_dir)
-
-		return s_odf_s3
-
-	def save_odf(self, s_odf_s3, odf_obj):
-		odf_obj.to_bin_file(s_odf_s3)		
-
-	def get_fce_pathspec(self, s_app_dir,
-								s_exchange_basename,
-								s_symbol,
-								s_odf_basename):
-		return fce.FCEPathSpec(s_app_dir,
-								s_exchange_basename,
-								s_symbol,
-								s_odf_basename)
-
-	def get_fce_tmp_path(self, fce_pathspec, s_fce_header_filename):
-		s_fce_tmp_filename = os.sep.join([fce_pathspec.s_fce_tmp, "18", 
-											str(fce_pathspec.odf_jsunnoon), s_fce_header_filename])
-		
-		s_fce_tmp_dir = os.path.dirname(s_fce_tmp_filename)
-		return (s_fce_tmp_dir, s_fce_tmp_filename)
-
-	def get_fce_path(self, fce_pathspec, s_fce_header_filename):		
-		s_fce_s3_filename = os.sep.join([self.s_root_dir, fce_pathspec.s_fce_s3_prefix, "18", 
-											str(fce_pathspec.odf_jsunnoon), s_fce_header_filename])
-		s_fce_s3_dirname = os.path.dirname(s_fce_s3_filename)
-
-		return (s_fce_s3_dirname, s_fce_s3_filename)
-
-	def open_fce(self, fce_pathspec, s_fce_header_filename, key=None):
-
-		(s_fce_tmp_dir, s_fce_tmp_filename) = self.get_fce_tmp_path(fce_pathspec, s_fce_header_filename)
-
-		if not os.path.exists(s_fce_tmp_filename):
-			(s_fce_s3_dirname, s_fce_s3_filename) = self.get_fce_path(fce_pathspec, s_fce_header_filename)			
+		if self.local_path_exists(s_fce_local_path):
+			self.local_remove(s_fce_local_path)
 			
-			if os.path.exists(s_fce_s3_filename):
-				if not os.path.exists(s_fce_tmp_dir):
-					os.makedirs(s_fce_tmp_dir)
-				self.download_file(s_fce_s3_dirname, s_fce_s3_filename, s_fce_tmp_filename)
+		(s_fce_bucket, s_fce_remote_path) = self.get_fce_remote_path(self, fce_pathspec, fce_pathspec.s_fce_header_filename)
+		
+		if self.remote_path_exists(s_fce_bucket, s_fce_remote_path):
+			self.remote_remove(s_fce_bucket, s_fce_remote_path)
+	
+	def get_odf_remote_path(self, s_exchange_basename, s_odf_basename):
+
+		s_odf_remote_path = self.remote_make_path(self.s_bucket, s_exchange_basename, "odf", s_odf_basename)
+		s_odf_remote_path = '.'.join([s_odf_remote_path, "rs3"])
+		s_odf_bucket = self.remote_bucket(s_odf_remote_path)
+
+		if not self.remote_bucket_exists(s_odf_bucket):
+			self.remote_make_bucket(s_odf_bucket)
+
+		return (s_odf_bucket, s_odf_remote_path)
+
+	def save_odf(self, s_exchange_basename, s_odf_basename, odf_obj):
+		
+		(s_odf_local_dir, s_odf_local_path) = self.get_odf_local_path(s_exchange_basename, s_odf_basename)
+		
+		if not self.local_path_exists(s_odf_local_dir):
+			self.local_make_dirs(s_odf_local_dir)
+
+		odf_obj.to_bin_file(s_odf_local_path)
+		
+		(s_odf_bucket, s_odf_remote_path) = self.get_odf_remote_path(s_exchange_basename, s_odf_basename)
+		
+		self.upload_file(s_odf_local_path, s_odf_bucket, s_odf_remote_path)
+		
+		return True		
+
+	'''
+		def get_fce_pathspec(self, s_app_dir,
+									s_exchange_basename,
+									s_symbol,
+									s_odf_basename):
+			return context.FCEContext(s_app_dir,
+									s_exchange_basename,
+									s_symbol,
+									s_odf_basename)
+	'''
+
+	def get_fce_local_path(self, ctx, s_fce_header_filename):
+		s_fce_local_path = self.lsep.join([ctx.s_fce_local_dir, "18", 
+											str(ctx.odf_jsunnoon), s_fce_header_filename])
+		
+		s_fce_local_dir = self.local_dirname(s_fce_local_path)
+		return (s_fce_local_dir, s_fce_local_path)
+	
+	def get_fce_remote_path(self, ctx, s_fce_header_filename):
+				
+		s_fce_remote_path = self.remote_make_path(self.s_bucket, ctx.s_fce_remote_prefix, "18", 
+											str(ctx.odf_jsunnoon), s_fce_header_filename)
+		
+		s_fce_bucket = self.remote_bucket(s_fce_remote_path)
+		#log.debug(s_fce_bucket)
+		#log.debug(s_fce_remote_path)
+		return (s_fce_bucket, s_fce_remote_path)
+
+	def open_fce(self, ctx, s_fce_header_filename, key=None):
+
+		(s_fce_local_dir, s_fce_local_path) = self.get_fce_local_path(ctx, s_fce_header_filename)
+
+		if not self.local_path_exists(s_fce_local_path):
+			(s_fce_bucket, s_fce_remote_path) = self.get_fce_remote_path(ctx, s_fce_header_filename)			
+			
+			if self.remote_path_exists(s_fce_bucket, s_fce_remote_path):
+				if not self.local_path_exists(s_fce_local_dir):
+					self.local_make_dirs(s_fce_local_dir)
+				self.download_file(s_fce_bucket, s_fce_remote_path, s_fce_local_path)
 			else:
 				return None
 		
-		fp_bin = open(s_fce_tmp_filename, "rb")
+		fp_bin = open(s_fce_local_path, "rb")
 
 		fce_obj = fce.FCE()
 
@@ -184,87 +169,242 @@ class LocalS3Store(object):
 
 		return fce_obj
 
-	def fce_exists(self, fce_pathspec, s_fce_header_filename):
-		s_fce_tmp_filename = os.sep.join([fce_pathspec.s_fce_tmp, "18", 
-											str(fce_pathspec.odf_jsunnoon), s_fce_header_filename])
+	def fce_exists(self, ctx, s_fce_header_filename):
 		
-		if os.path.exists(s_fce_tmp_filename):
+		(s_fce_local_dir, s_fce_local_path) = self.get_fce_local_path(ctx, s_fce_header_filename)
+		
+		if self.local_path_exists(s_fce_local_path):
 			return True
 
-		s_fce_s3_filename = os.sep.join([self.s_root_dir, fce_pathspec.s_fce_s3_prefix, "18", 
-											str(fce_pathspec.odf_jsunnoon), s_fce_header_filename])
+		(s_fce_bucket, s_fce_remote_path) = self.get_fce_remote_path(ctx, s_fce_header_filename)
 		
-		if os.path.exists(s_fce_s3_filename):
-			shutil.copyfile(s_fce_s3_filename, s_fce_tmp_filename)
+		if self.remote_path_exists(s_fce_bucket, s_fce_remote_path):
+			if not self.local_path_exists(s_fce_local_dir):
+				self.local_make_dirs(s_fce_local_dir)
+			self.download_file(s_fce_bucket, s_fce_remote_path, s_fce_local_path)
 			return True
 
 		return False
 
-	def save_fce(self, fce_pathspec, s_fce_header_filename, fce_obj, key=None):
+	def save_fce(self, ctx, s_fce_header_filename, fce_obj, key=None, b_save_csv=False):
 		
 		# First save the fce in the tmp directory
-		s_fce_tmp_filename = os.sep.join([fce_pathspec.s_fce_tmp, "18", 
-											str(fce_pathspec.odf_jsunnoon), s_fce_header_filename])
+		(s_fce_local_dir, s_fce_local_path) = self.get_fce_local_path(ctx, s_fce_header_filename)
+
+		if not self.local_path_exists(s_fce_local_dir):
+			self.local_make_dirs(s_fce_local_dir)
+
+		fce_obj.to_bin_file(s_fce_local_path, key)
 		
-		s_fce_tmp_dir = os.path.dirname(s_fce_tmp_filename)
-
-		if not os.path.exists(s_fce_tmp_dir):
-			os.makedirs(s_fce_tmp_dir)
-
-		fce_obj.to_bin_file(s_fce_tmp_filename, key)
-
+		if b_save_csv:
+			fce_obj.to_csv_file(s_fce_local_path + ".csv")
+		
 		# copy the tmp file to S3 directory
-		s_fce_s3_filename = os.sep.join([self.s_root_dir, fce_pathspec.s_fce_s3_prefix, "18", 
-											str(fce_pathspec.odf_jsunnoon), s_fce_header_filename])
+		(s_fce_bucket, s_fce_remote_path) = self.get_fce_remote_path(ctx, s_fce_header_filename)
 		
-		s_fce_s3_dir = os.path.dirname(s_fce_s3_filename)
-
-		self.upload_file(s_fce_tmp_filename, s_fce_s3_dir, s_fce_s3_filename)
+		#log.debug(s_fce_bucket)
+		#log.debug(s_fce_remote_path)
+		self.upload_file(s_fce_local_path, s_fce_bucket, s_fce_remote_path)
 		
 
-	def get_chunk_file_tmp_path(self, fce_pathspec, L_no, fce_jsunnoon, s_chunk_file_name):
-		s_chunk_file_tmp_path = os.sep.join([fce_pathspec.s_fce_tmp, str(L_no), str(fce_jsunnoon), os.path.basename(s_chunk_file_name)])
-		s_chunk_tmp_dir = os.path.dirname(s_chunk_file_tmp_path)
-		if not os.path.exists(s_chunk_tmp_dir):
-			os.makedirs(s_chunk_tmp_dir)
-		return (s_chunk_tmp_dir, s_chunk_file_tmp_path)
+	def get_chunk_file_local_path(self, ctx, L_no, fce_jsunnoon, s_chunk_file_name):
+		
+		s_chunk_file_local_path = self.lsep.join([ctx.s_fce_local_dir, str(L_no), str(fce_jsunnoon), s_chunk_file_name])
+		
+		s_chunk_local_dir = self.local_dirname(s_chunk_file_local_path)
+		
+		if not self.local_path_exists(s_chunk_local_dir):
+			self.local_make_dirs(s_chunk_local_dir)
+		
+		return (s_chunk_local_dir, s_chunk_file_local_path)
 
-	def get_chunk_file_path(self, fce_pathspec, L_no, fce_jsunnoon, s_chunk_file_name):
-		s_chunk_file_path = os.sep.join([self.s_root_dir, fce_pathspec.s_fce_s3_prefix, str(L_no), str(fce_jsunnoon), os.path.basename(s_chunk_file_name)])
-		s_chunk_file_dir = os.path.dirname(s_chunk_file_path)
-		if not os.path.exists(s_chunk_file_dir):
+	def get_chunk_file_remote_path(self, ctx, L_no, fce_jsunnoon, s_chunk_file_name):
+		
+		s_chunk_file_remote_path = self.remote_make_path(self.s_bucket, ctx.s_fce_remote_prefix, str(L_no), str(fce_jsunnoon), s_chunk_file_name)
+		
+		s_chunk_file_bucket = self.remote_bucket(s_chunk_file_remote_path)
+		
+		if not self.remote_bucket_exists(s_chunk_file_bucket):
 			try:
-				os.makedirs(s_chunk_file_dir)
+				self.remote_make_bucket(s_chunk_file_bucket)
 			except:
-				log.error(s_chunk_file_dir)
-				log.error(s_chunk_file_path)
+				log.error(s_chunk_file_bucket)
+				log.error(s_chunk_file_remote_path)
 				raise
-		return (s_chunk_file_dir, s_chunk_file_path)
+			
+		return (s_chunk_file_bucket, s_chunk_file_remote_path)
 
-	def chunk_file_exists(self, s_chunk_file_dir_s3, s_chunk_file_name_s3):
-		return os.path.exists(s_chunk_file_name_s3)
+	def chunk_file_exists(self, ctx, L_no, fce_jsunnoon, s_chunk_file_name):
+		
+		(s_chunk_file_local_dir, s_chunk_file_local_path) = self.get_chunk_file_local_path(ctx, L_no, fce_jsunnoon, s_chunk_file_name)
+		
+		if self.local_path_exists(s_chunk_file_local_path):
+			return True
 
-	def save_chunk_file(self, s_chunk_file_name, chunk_array, key=None):
-		fp_chunk = open(s_chunk_file_name, "wb")
-		buf = chunk_array.to_bin_short(key)
-		fp_chunk.write(buf)
-		fp_chunk.close()
+		(s_chunk_file_bucket, s_chunk_file_remote_path) = self.get_chunk_file_remote_path(ctx, L_no, fce_jsunnoon, s_chunk_file_name)
+		
+		if self.remote_path_exists(s_chunk_file_bucket, s_chunk_file_remote_path):
+			if not self.local_path_exists(s_chunk_file_local_dir):
+				self.local_make_dirs(s_chunk_file_local_dir)
+			self.download_file(s_chunk_file_bucket, s_chunk_file_remote_path, s_chunk_file_local_path)
+			return True
 
-	def download_file(self, s_s3_bucket, s_s3_file_name, s_local_file_name):
-		s_local_dir = os.path.dirname(s_local_file_name)
-		if not os.path.exists(s_local_dir):
-			os.makedirs(s_local_dir)
-		shutil.copyfile(s_s3_file_name, s_local_file_name)
+		return False
 
-	def upload_file(self, s_local_file_name, s_s3_bucket, s_s3_file_name):
-		if not os.path.exists(s_s3_bucket):
-			os.makedirs(s_s3_bucket)
-		shutil.copyfile(s_local_file_name, s_s3_file_name)
+	def open_chunk_file(self, ctx, L_no, fce_jsunnoon, s_chunk_file_name, chunk_size, key):
+		
+		(s_chunk_file_local_dir, s_chunk_file_local_path) = self.get_chunk_file_local_path(ctx, L_no, fce_jsunnoon, s_chunk_file_name)
+		
+		chunk_arr_short = chunk.read_short_chunk_array(s_chunk_file_local_path, s_chunk_file_name, chunk_size, key)
+		
+		return chunk_arr_short
+	
+	def save_chunk_file(self, ctx, L_no, fce_jsunnoon, chunk_array, key=None, b_do_csv_chunk=False):
+		
+		s_chunk_file_name = chunk_array.get_name()
+		
+		# First save the fce in the tmp directory
+		(s_chunk_file_local_dir, s_chunk_file_local_path) = self.get_chunk_file_local_path(ctx, L_no, fce_jsunnoon, s_chunk_file_name)
 
-	def move_up(self, s_local_file, s_bucket, s_remote_file):
-		shutil.copyfile(s_local_file, s_remote_file)
-		os.remove(s_local_file)
+		if not self.local_path_exists(s_chunk_file_local_dir):
+			self.local_make_dirs(s_chunk_file_local_dir)
 
+		chunk_array.to_bin_file_short(s_chunk_file_local_path, key)
+		
+		if b_do_csv_chunk:
+			s_chunk_csv_local_path = '.'.join([s_chunk_file_local_path, "csv"])
+			#log.debug("Saving chunk CSV: %s..." % (s_chunk_csv_local_path))
+			chunk_array.save_csv(s_chunk_csv_local_path)
+			
+		# copy the tmp file to S3 directory
+		(s_chunk_file_bucket, s_chunk_file_remote_path) = self.get_chunk_file_remote_path(ctx, L_no, fce_jsunnoon, s_chunk_file_name)
+		
+		self.upload_file(s_chunk_file_local_path, s_chunk_file_bucket, s_chunk_file_remote_path)
+		
+	def download_file(self, s_bucket, s_remote_file_path, s_local_file_path):
+		
+		s_local_dir = self.local_dirname(s_local_file_path)
+		
+		if not self.local_path_exists(s_local_dir):
+			self.local_make_dirs(s_local_dir)
+		
+		self.download(s_bucket, s_remote_file_path, s_local_file_path)
+
+	def upload_file(self, s_local_file_path, s_bucket, s_remote_file_path):
+		
+		if not self.remote_bucket_exists(s_bucket):
+			self.remote_make_bucket(s_bucket)
+		
+		self.upload(s_local_file_path, s_bucket, s_remote_file_path)
+
+	def move_up(self, s_local_file_path, s_bucket, s_remote_file_path):
+		
+		self.upload_file(s_local_file_path, s_bucket, s_remote_file_path)
+		
+		self.local_remove(s_local_file_path)
+
+	def move_down(self, s_bucket, s_remote_file_path, s_local_file_path):
+		
+		self.download_file(s_bucket, s_remote_file_path, s_local_file_path)
+		
+		self.remote_remove(s_bucket, s_remote_file_path)
+
+
+class S3Store(AbstractFileStore):
+	
+	rsep = "/"
+
+	def __init__(self, s_bucket, s_aws_access_id, s_aws_secret_access_key, s_aws_region):
+		super(S3Store, self).__init__()
+		self.connection = boto.s3.connection.S3Connection(s_aws_access_id,
+														s_aws_secret_access_key)
+		self.s_bucket = s_bucket
+
+	def get_key(self, s_bucket, s_path):
+		bucket = boto.s3.bucket.Bucket(connection=self.connection, name=s_bucket)
+		key = boto.s3.key.Key(bucket)
+		key.key = s_path
+		return key
+	
+	def remote_make_path(self, s_bucket, *kargs):
+		return self.rsep.join(kargs)
+	
+	def remote_abspath(self, s_bucket):
+		return s_bucket
+	
+	def remote_path_exists(self, s_bucket, s_path):
+		key = self.get_key(s_bucket, s_path)
+		return key.exists()
+	
+	def remote_rmtree(self, s_bucket, s_path):
+		self.remote_remove(s_bucket, s_path)
+
+	def remote_remove(self, s_bucket, s_path):
+		key = self.get_key(s_bucket, s_path)
+		key.delete()
+	
+	def remote_bucket(self, s_path):
+		self.s_bucket
+	
+	def remote_bucket_exists(self, s_bucket):
+		bucket = boto.s3.bucket.Bucket(connection=self.connection, name=s_bucket)
+		return bucket.exists()
+		
+	def remote_make_bucket(self, s_path):
+		pass
+	
+	def upload(self, s_local_file_path, s_bucket, s_remote_file_path):
+		key = self.get_key(s_bucket, s_remote_file_path)
+		key.set_contents_from_filename(s_local_file_path)
+		return key
+
+	def download(self, s_bucket, s_remote_file_path, s_local_file_path):
+		key = self.get_key(s_bucket, s_remote_file_path)
+		key.get_contents_to_filename(s_local_file_path)
+		return key
+
+	
+class LocalS3Store(AbstractFileStore):
+	
+	rsep = os.sep
+	
+	def __init__(self, s_remote_root):
+		self.s_bucket = self.remote_abspath(s_remote_root)
+		super(LocalS3Store, self).__init__()
+
+	def remote_make_path(self, s_bucket, *kargs):
+		ls_args = [s_bucket]
+		ls_args = ls_args + list(kargs)
+		return self.rsep.join(ls_args)
+	
+	def remote_abspath(self, s_bucket):
+		return os.path.abspath(s_bucket)
+	
+	def remote_path_exists(self, s_bucket, s_path):
+		return os.path.exists(s_path)
+	
+	def remote_rmtree(self, s_path):
+		return shutil.rmtree(s_path)
+
+	def remote_remove(self, s_bucket, s_path):
+		return os.remove(s_path)
+			
+	def remote_bucket(self, s_path):
+		return os.path.dirname(s_path)
+	
+	def remote_bucket_exists(self, s_bucket):
+		return os.path.exists(s_bucket)
+		
+	def remote_make_bucket(self, s_path):
+		return os.makedirs(s_path)
+		
+	def download(self, s_remote_bucket, s_remote_file_path, s_local_file_path):
+		shutil.copyfile(s_remote_file_path, s_local_file_path)
+	
+	def upload(self, s_local_file_path, s_remote_bucket, s_remote_file_path):
+		shutil.copyfile(s_local_file_path, s_remote_file_path)
+		
+	
 def get_s3_store(config):
 
 	if config.b_test_mode:

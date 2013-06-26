@@ -52,7 +52,7 @@ class ChunkHeader(BinaryStruct):
 		chunk_open_recno = self.get_field('CHUNK_OPEN_RECNO')
 		chunk_close_recno = self.get_field('CHUNK_CLOSE_RECNO')
 
-		buf = "%f, %d, %d, %d" % (f_lowest_low, volume_tick, chunk_open_recno, chunk_close_recno)
+		buf = "%f,%d,%d,%d" % (f_lowest_low, volume_tick, chunk_open_recno, chunk_close_recno)
 
 		return buf
 
@@ -92,7 +92,7 @@ class ShortChunkHeader(BinaryStruct):
 		chunk_open_recno = self.get_field('CHUNK_OPEN_RECNO')
 		chunk_close_recno = self.get_field('CHUNK_CLOSE_RECNO')
 
-		buf = "%d, %d, %d, %d" % (lowest_low, volume_tick, chunk_open_recno, chunk_close_recno)
+		buf = "%d,%d,%d,%d" % (lowest_low, volume_tick, chunk_open_recno, chunk_close_recno)
 
 		return buf
 
@@ -186,7 +186,7 @@ class ShortChunk(BinaryStruct):
 		h_close = self.get_field("CLOSE")
 		h_volume = self.get_field("VOLUME")
 
-		buf = "%d, %d, %d, %d, %d" % (h_open, h_high, h_low, h_close, h_volume)
+		buf = "%d,%d,%d,%d,%d" % (h_open, h_high, h_low, h_close, h_volume)
 
 		return buf
 
@@ -251,6 +251,12 @@ class ChunkArray(object):
 				lowest_low = low
 		if lowest_low == 999999999:
 			lowest_low = 0
+		'''
+		if lowest_low == 0:
+			log.error(self.get_name())
+			log.error(self.to_csv())
+			raise ODFException("Invalid lowest_low")
+		'''
 		return lowest_low
 
 	def to_bin_short(self, key=None):
@@ -289,6 +295,12 @@ class ChunkArray(object):
 		buf += str(chunk_hdr_rec) + '\n'
 		return buf
 	
+	def to_bin_file_short(self, s_chunk_file_local_path, key=None):
+		fp_chunk = open(s_chunk_file_local_path, "wb")
+		buf = self.to_bin_short(key)
+		fp_chunk.write(buf)
+		fp_chunk.close()
+		
 	def save_csv(self, s_chunk_csv_file_name):
 		#log.debug("saving chunk to csv: %s" % s_chunk_csv_file_name)
 		fp = open(s_chunk_csv_file_name, "w")

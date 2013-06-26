@@ -400,6 +400,23 @@ class FIFO(BinaryStruct):
 
 		return ld_fifo_recs
 
+	def to_csv(self):
+		buf = ""
+
+		for fifo_rec in self.l_fifo_records:
+			buf  = buf + str(fifo_rec)
+
+		for fifo_header in self.l_fifo_headers:
+			buf = buf + str(fifo_header)
+
+		return buf
+
+	def to_csv_file(self, s_fifo_csv_file_path):
+		fp_fifo_csv = open(s_fifo_csv_file_path, "w")
+		buf = self.to_csv()
+		fp_fifo_csv.write(buf)
+		fp_fifo_csv.close()
+
 	def to_bin_file(self, s_fifo_bin):
 		fp_fifo_bin = open(s_fifo_bin, "wb")
 		buf = self.to_bin()
